@@ -1,5 +1,4 @@
-use std::time::Instant;
-
+use chrono::{DateTime, Utc};
 use mavlink::common::MavMessage;
 use mavlink::{MavHeader, Message};
 use ratatui::style::Color;
@@ -16,7 +15,7 @@ const COLORS: &[Color] = &[
 pub struct MavMsg {
     pub header: MavHeader,
     pub msg: MavMessage,
-    pub timestamp: Instant,
+    pub timestamp: DateTime<Utc>,
 }
 
 impl MavMsg {
@@ -24,7 +23,7 @@ impl MavMsg {
         Self {
             header,
             msg,
-            timestamp: Instant::now(),
+            timestamp: Utc::now(),
         }
     }
 
@@ -34,19 +33,28 @@ impl MavMsg {
         COLORS[idx]
     }
 
+    pub fn msg_color(&self) -> Option<Color> {
+        match self.msg {
+            MavMessage::HEARTBEAT(..) => Some(Color::Magenta),
+            MavMessage::MANUAL_CONTROL(..) => Some(Color::Green),
+            MavMessage::ATTITUDE(..) | MavMessage::GLOBAL_POSITION_INT(..) => Some(Color::Blue),
+            _ => None,
+        }
+    }
+
     pub fn msg_type(&self) -> &'static str {
         self.msg.message_name()
     }
 
-    pub fn text(&self) -> String {
-        format!(
-            "[SYS:{} COMP:{}] {:?}",
-            self.header.system_id, self.header.component_id, self.msg
-        )
+    pub fn fields(&self) -> String {
+        let debug = format!("{:?}", self.msg);
+        let start = debug.find('{').map(|i| i + 1).unwrap_or(0);
+        let end = debug.rfind('}').unwrap_or(debug.len());
+        debug[start..end].replace(',', "").trim().to_string()
     }
 
     #[allow(deprecated)]
-    pub fn is_command(&self) -> bool {
+    pub fn is_event(&self) -> bool {
         matches!(
             self.msg,
             // Command protocol
@@ -66,28 +74,15 @@ impl MavMsg {
                 | MavMessage::MISSION_COUNT(..)
                 | MavMessage::MISSION_CLEAR_ALL(..)
                 | MavMessage::MISSION_ACK(..)
-                // SET_* messages
+                // Discrete SET_* messages
                 | MavMessage::SET_MODE(..)
-                | MavMessage::SET_ATTITUDE_TARGET(..)
-                | MavMessage::SET_POSITION_TARGET_LOCAL_NED(..)
-                | MavMessage::SET_POSITION_TARGET_GLOBAL_INT(..)
-                | MavMessage::SET_ACTUATOR_CONTROL_TARGET(..)
                 | MavMessage::SET_GPS_GLOBAL_ORIGIN(..)
                 | MavMessage::SET_HOME_POSITION(..)
-                // Manual control
-                | MavMessage::MANUAL_CONTROL(..)
-                | MavMessage::MANUAL_SETPOINT(..)
-                | MavMessage::RC_CHANNELS_OVERRIDE(..)
                 // Param set
                 | MavMessage::PARAM_SET(..)
                 | MavMessage::PARAM_EXT_SET(..)
                 // Safety
                 | MavMessage::SAFETY_SET_ALLOWED_AREA(..)
-                // Gimbal set
-                | MavMessage::GIMBAL_DEVICE_SET_ATTITUDE(..)
-                | MavMessage::GIMBAL_MANAGER_SET_ATTITUDE(..)
-                | MavMessage::GIMBAL_MANAGER_SET_MANUAL_CONTROL(..)
-                | MavMessage::GIMBAL_MANAGER_SET_PITCHYAW(..)
         )
     }
 }

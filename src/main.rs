@@ -22,8 +22,12 @@ fn main() -> io::Result<()> {
 
     let (tx, rx) = mpsc::channel();
 
+    let connection = connection::connect(&args.uri).map_err(|e| {
+        eprintln!("error: {e}");
+        e
+    })?;
+
     thread::spawn(move || {
-        let connection = connection::connect(&args.uri);
         loop {
             match connection.recv() {
                 Ok((header, msg)) => {

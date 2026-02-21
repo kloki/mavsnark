@@ -1,76 +1,137 @@
-use std::{collections::HashMap, time::Instant};
+use std::collections::HashMap;
 
-use ratatui::style::Color;
+use chrono::{DateTime, Utc};
+use ratatui::{
+    style::{Color, Style},
+    text::{Line, Span},
+};
 
 use crate::message::MavMsg;
 
-pub struct TelemetryEntry {
+pub struct StreamEntry {
     pub color: Color,
-    pub text: String,
-    pub timestamp: Instant,
+    pub msg_color: Option<Color>,
+    pub sys_id: u8,
+    pub comp_id: u8,
+    pub name: &'static str,
+    pub fields: String,
+    pub timestamp: DateTime<Utc>,
 }
 
-pub struct CommandEntry {
-    pub color: Color,
-    pub text: String,
-    pub timestamp: Instant,
+impl StreamEntry {
+    pub fn to_line(&self) -> Line<'_> {
+        let colored = Style::default().fg(self.color);
+        let ago = Utc::now()
+            .signed_duration_since(self.timestamp)
+            .num_milliseconds() as f64
+            / 1000.0;
+        let gray = Style::default().fg(Color::DarkGray);
+        let msg_style = match self.msg_color {
+            Some(c) => Style::default().fg(c),
+            None => Style::default(),
+        };
+        Line::from(vec![
+            Span::raw("["),
+            Span::styled(format!("{:>3}", self.sys_id), colored),
+            Span::raw(":"),
+            Span::styled(format!("{:>3}", self.comp_id), colored),
+            Span::raw("] "),
+            Span::styled(format!("{ago:>6.1}s "), gray),
+            Span::styled(format!("{}: {}", self.name, self.fields), msg_style),
+        ])
+    }
 }
 
-type TelemetryKey = (u8, u8, &'static str);
+pub struct EventEntry {
+    pub color: Color,
+    pub msg_color: Option<Color>,
+    pub sys_id: u8,
+    pub comp_id: u8,
+    pub name: &'static str,
+    pub fields: String,
+}
+
+impl EventEntry {
+    pub fn to_line(&self) -> Line<'_> {
+        let colored = Style::default().fg(self.color);
+        let msg_style = match self.msg_color {
+            Some(c) => Style::default().fg(c),
+            None => Style::default(),
+        };
+        Line::from(vec![
+            Span::raw("["),
+            Span::styled(format!("{:>3}", self.sys_id), colored),
+            Span::raw(":"),
+            Span::styled(format!("{:>3}", self.comp_id), colored),
+            Span::raw("] "),
+            Span::styled(format!("{}: {}", self.name, self.fields), msg_style),
+        ])
+    }
+}
+
+type StreamKey = (u8, u8, &'static str);
 
 pub struct Collector {
-    telemetry: Vec<TelemetryEntry>,
-    telemetry_index: HashMap<TelemetryKey, usize>,
-    commands: Vec<CommandEntry>,
+    stream: Vec<StreamEntry>,
+    stream_index: HashMap<StreamKey, usize>,
+    events: Vec<EventEntry>,
 }
 
 impl Collector {
     pub fn new() -> Self {
         Self {
-            telemetry: Vec::new(),
-            telemetry_index: HashMap::new(),
-            commands: Vec::new(),
+            stream: Vec::new(),
+            stream_index: HashMap::new(),
+            events: Vec::new(),
         }
     }
 
     pub fn push(&mut self, msg: MavMsg) {
         let color = msg.color();
-        let text = msg.text();
+        let msg_color = msg.msg_color();
+        let sys_id = msg.header.system_id;
+        let comp_id = msg.header.component_id;
+        let name = msg.msg_type();
+        let fields = msg.fields();
         let timestamp = msg.timestamp;
 
-        if msg.is_command() {
-            self.commands.push(CommandEntry {
+        if msg.is_event() {
+            self.events.push(EventEntry {
                 color,
-                text,
-                timestamp,
+                msg_color,
+                sys_id,
+                comp_id,
+                name,
+                fields,
             });
         } else {
-            let key = (
-                msg.header.system_id,
-                msg.header.component_id,
-                msg.msg_type(),
-            );
-            if let Some(&idx) = self.telemetry_index.get(&key) {
-                let entry = &mut self.telemetry[idx];
+            let key = (sys_id, comp_id, name);
+            if let Some(&idx) = self.stream_index.get(&key) {
+                let entry = &mut self.stream[idx];
                 entry.color = color;
-                entry.text = text;
+                entry.fields = fields;
+                entry.timestamp = timestamp;
             } else {
-                let idx = self.telemetry.len();
-                self.telemetry_index.insert(key, idx);
-                self.telemetry.push(TelemetryEntry {
+                let idx = self.stream.len();
+                self.stream_index.insert(key, idx);
+                self.stream.push(StreamEntry {
                     color,
-                    text,
-                    timestamp: timestamp,
+                    msg_color,
+                    sys_id,
+                    comp_id,
+                    name,
+                    fields,
+                    timestamp,
                 });
             }
         }
     }
 
-    pub fn telemetry(&self) -> &[TelemetryEntry] {
-        &self.telemetry
+    pub fn stream(&self) -> &[StreamEntry] {
+        &self.stream
     }
 
-    pub fn commands(&self) -> &[CommandEntry] {
-        &self.commands
+    pub fn events(&self) -> &[EventEntry] {
+        &self.events
     }
 }

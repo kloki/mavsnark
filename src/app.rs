@@ -15,8 +15,8 @@ use crate::message::MavMsg;
 
 #[derive(PartialEq)]
 enum Panel {
-    Telemetry,
-    Commands,
+    Stream,
+    Events,
 }
 
 struct ScrollState {
@@ -66,8 +66,8 @@ impl ScrollState {
 
 pub struct App {
     collector: Collector,
-    telemetry_scroll: ScrollState,
-    commands_scroll: ScrollState,
+    stream_scroll: ScrollState,
+    events_scroll: ScrollState,
     active_panel: Panel,
 }
 
@@ -75,9 +75,9 @@ impl App {
     pub fn new() -> Self {
         Self {
             collector: Collector::new(),
-            telemetry_scroll: ScrollState::new(),
-            commands_scroll: ScrollState::new(),
-            active_panel: Panel::Telemetry,
+            stream_scroll: ScrollState::new(),
+            events_scroll: ScrollState::new(),
+            active_panel: Panel::Stream,
         }
     }
 
@@ -87,22 +87,22 @@ impl App {
 
     fn toggle_panel(&mut self) {
         self.active_panel = match self.active_panel {
-            Panel::Telemetry => Panel::Commands,
-            Panel::Commands => Panel::Telemetry,
+            Panel::Stream => Panel::Events,
+            Panel::Events => Panel::Stream,
         };
     }
 
     fn active_scroll(&mut self) -> &mut ScrollState {
         match self.active_panel {
-            Panel::Telemetry => &mut self.telemetry_scroll,
-            Panel::Commands => &mut self.commands_scroll,
+            Panel::Stream => &mut self.stream_scroll,
+            Panel::Events => &mut self.events_scroll,
         }
     }
 
     fn active_total(&self) -> usize {
         match self.active_panel {
-            Panel::Telemetry => self.collector.telemetry().len(),
-            Panel::Commands => self.collector.commands().len(),
+            Panel::Stream => self.collector.stream().len(),
+            Panel::Events => self.collector.events().len(),
         }
     }
 
@@ -142,25 +142,37 @@ impl App {
 }
 
 fn draw(frame: &mut Frame, app: &mut App) {
-    let rows = Layout::vertical([Constraint::Min(0), Constraint::Length(1)])
-        .split(frame.area());
+    let rows = Layout::vertical([
+        Constraint::Length(3),
+        Constraint::Min(0),
+        Constraint::Length(1),
+    ])
+    .split(frame.area());
+
+    let header_style = Style::default().fg(Color::Cyan).bold();
+    let header = Paragraph::new(vec![
+        Line::from(Span::styled(r" _____ _____ _ _ ___ ___ ___ ___ ___ ", header_style)),
+        Line::from(Span::styled(r"|     |  _  | | |_ -|   | .'|  _| '_|", header_style)),
+        Line::from(Span::styled(r"|_|_|_|__|__|\_/|___|_|_|__,|_| |_,_|", header_style)),
+    ]);
+    frame.render_widget(header, rows[0]);
 
     let chunks = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
-        .split(rows[0]);
+        .split(rows[1]);
 
-    draw_telemetry(
+    draw_stream(
         frame,
         &app.collector,
-        &mut app.telemetry_scroll,
+        &mut app.stream_scroll,
         chunks[0],
-        app.active_panel == Panel::Telemetry,
+        app.active_panel == Panel::Stream,
     );
-    draw_commands(
+    draw_events(
         frame,
         &app.collector,
-        &mut app.commands_scroll,
+        &mut app.events_scroll,
         chunks[1],
-        app.active_panel == Panel::Commands,
+        app.active_panel == Panel::Events,
     );
 
     let footer = Line::from(vec![
@@ -175,10 +187,10 @@ fn draw(frame: &mut Frame, app: &mut App) {
         Span::styled("g/G", Style::default().fg(Color::Cyan).bold()),
         Span::raw(" Top/Bottom "),
     ]);
-    frame.render_widget(Paragraph::new(footer), rows[1]);
+    frame.render_widget(Paragraph::new(footer), rows[2]);
 }
 
-fn draw_telemetry(
+fn draw_stream(
     frame: &mut Frame,
     collector: &Collector,
     scroll: &mut ScrollState,
@@ -186,25 +198,20 @@ fn draw_telemetry(
     active: bool,
 ) {
     let vh = area.height.saturating_sub(2) as usize;
-    let telemetry = collector.telemetry();
-    let total = telemetry.len();
+    let stream = collector.stream();
+    let total = stream.len();
 
     scroll.auto_follow(total, vh);
 
-    let lines: Vec<Line> = telemetry
+    let lines: Vec<Line> = stream
         .iter()
         .skip(scroll.offset)
         .take(vh)
-        .map(|entry| {
-            Line::from(Span::styled(
-                entry.text.as_str(),
-                Style::default().fg(entry.color),
-            ))
-        })
+        .map(|entry| entry.to_line())
         .collect();
 
     let title = format!(
-        " Telemetry [{} types] {} ",
+        " Stream [{} types] {} ",
         total,
         if scroll.auto_scroll { "[AUTO]" } else { "" }
     );
@@ -232,7 +239,7 @@ fn draw_telemetry(
     );
 }
 
-fn draw_commands(
+fn draw_events(
     frame: &mut Frame,
     collector: &Collector,
     scroll: &mut ScrollState,
@@ -240,25 +247,20 @@ fn draw_commands(
     active: bool,
 ) {
     let vh = area.height.saturating_sub(2) as usize;
-    let commands = collector.commands();
-    let total = commands.len();
+    let events = collector.events();
+    let total = events.len();
 
     scroll.auto_follow(total, vh);
 
-    let lines: Vec<Line> = commands
+    let lines: Vec<Line> = events
         .iter()
         .skip(scroll.offset)
         .take(vh)
-        .map(|entry| {
-            Line::from(Span::styled(
-                entry.text.as_str(),
-                Style::default().fg(entry.color),
-            ))
-        })
+        .map(|entry| entry.to_line())
         .collect();
 
     let title = format!(
-        " Commands [{}/{}] {} ",
+        " Events [{}/{}] {} ",
         scroll.offset + 1,
         total,
         if scroll.auto_scroll { "[AUTO]" } else { "" }

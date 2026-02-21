@@ -1,10 +1,12 @@
+use std::io;
+
 use mavlink::{MavConnection, common::MavMessage};
 
-pub fn connect(uri: &str) -> Box<dyn MavConnection<MavMessage> + Send + Sync> {
+pub fn connect(uri: &str) -> io::Result<Box<dyn MavConnection<MavMessage> + Send + Sync>> {
     let mut connection = mavlink::connect::<MavMessage>(uri)
-        .unwrap_or_else(|e| panic!("failed to connect to {uri}: {e}"));
+        .map_err(|e| io::Error::new(io::ErrorKind::AddrInUse, format!("{uri}: {e}")))?;
 
     connection.set_protocol_version(mavlink::MavlinkVersion::V2);
 
-    Box::new(connection)
+    Ok(Box::new(connection))
 }
