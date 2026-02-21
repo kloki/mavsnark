@@ -1,5 +1,4 @@
-use std::collections::HashMap;
-use std::time::Instant;
+use std::{collections::HashMap, time::Instant};
 
 use ratatui::style::Color;
 
@@ -8,8 +7,7 @@ use crate::message::MavMsg;
 pub struct TelemetryEntry {
     pub color: Color,
     pub text: String,
-    pub count: usize,
-    pub first_seen: Instant,
+    pub timestamp: Instant,
 }
 
 pub struct CommandEntry {
@@ -18,15 +16,19 @@ pub struct CommandEntry {
     pub timestamp: Instant,
 }
 
+type TelemetryKey = (u8, u8, &'static str);
+
 pub struct Collector {
-    telemetry: HashMap<String, TelemetryEntry>,
+    telemetry: Vec<TelemetryEntry>,
+    telemetry_index: HashMap<TelemetryKey, usize>,
     commands: Vec<CommandEntry>,
 }
 
 impl Collector {
     pub fn new() -> Self {
         Self {
-            telemetry: HashMap::new(),
+            telemetry: Vec::new(),
+            telemetry_index: HashMap::new(),
             commands: Vec::new(),
         }
     }
@@ -43,34 +45,29 @@ impl Collector {
                 timestamp,
             });
         } else {
-            let key = format!(
-                "{}:{}:{}",
-                msg.header.system_id, msg.header.component_id, msg.msg_type()
+            let key = (
+                msg.header.system_id,
+                msg.header.component_id,
+                msg.msg_type(),
             );
-            let entry = self.telemetry.entry(key).or_insert(TelemetryEntry {
-                color,
-                text: String::new(),
-                count: 0,
-                first_seen: timestamp,
-            });
-            entry.color = color;
-            entry.text = text;
-            entry.count += 1;
+            if let Some(&idx) = self.telemetry_index.get(&key) {
+                let entry = &mut self.telemetry[idx];
+                entry.color = color;
+                entry.text = text;
+            } else {
+                let idx = self.telemetry.len();
+                self.telemetry_index.insert(key, idx);
+                self.telemetry.push(TelemetryEntry {
+                    color,
+                    text,
+                    timestamp: timestamp,
+                });
+            }
         }
     }
 
-    pub fn telemetry_sorted(&self) -> Vec<(&str, &TelemetryEntry)> {
-        let mut entries: Vec<_> = self
-            .telemetry
-            .iter()
-            .map(|(k, v)| (k.as_str(), v))
-            .collect();
-        entries.sort_by(|a, b| a.1.first_seen.cmp(&b.1.first_seen));
-        entries
-    }
-
-    pub fn telemetry_count(&self) -> usize {
-        self.telemetry.len()
+    pub fn telemetry(&self) -> &[TelemetryEntry] {
+        &self.telemetry
     }
 
     pub fn commands(&self) -> &[CommandEntry] {

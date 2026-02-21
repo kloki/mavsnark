@@ -101,7 +101,7 @@ impl App {
 
     fn active_total(&self) -> usize {
         match self.active_panel {
-            Panel::Telemetry => self.collector.telemetry_count(),
+            Panel::Telemetry => self.collector.telemetry().len(),
             Panel::Commands => self.collector.commands().len(),
         }
     }
@@ -186,16 +186,16 @@ fn draw_telemetry(
     active: bool,
 ) {
     let vh = area.height.saturating_sub(2) as usize;
-    let sorted = collector.telemetry_sorted();
-    let total = sorted.len();
+    let telemetry = collector.telemetry();
+    let total = telemetry.len();
 
     scroll.auto_follow(total, vh);
 
-    let lines: Vec<Line> = sorted
+    let lines: Vec<Line> = telemetry
         .iter()
         .skip(scroll.offset)
         .take(vh)
-        .map(|(_, entry)| {
+        .map(|entry| {
             Line::from(Span::styled(
                 entry.text.as_str(),
                 Style::default().fg(entry.color),
