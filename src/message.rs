@@ -1,6 +1,5 @@
 use chrono::{DateTime, Utc};
-use mavlink::common::MavMessage;
-use mavlink::{MavHeader, Message};
+use mavlink::{MavHeader, Message, common::MavMessage};
 use ratatui::style::Color;
 
 const COLORS: &[Color] = &[

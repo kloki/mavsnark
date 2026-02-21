@@ -1,5 +1,4 @@
-use std::io;
-use std::sync::mpsc;
+use std::{io, sync::mpsc};
 
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::{
@@ -10,8 +9,7 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
 };
 
-use crate::collector::Collector;
-use crate::message::MavMsg;
+use crate::{collector::Collector, message::MavMsg};
 
 #[derive(PartialEq)]
 enum Panel {
@@ -138,7 +136,11 @@ impl App {
         }
     }
 
-    pub fn run(&mut self, terminal: &mut DefaultTerminal, rx: mpsc::Receiver<MavMsg>) -> io::Result<()> {
+    pub fn run(
+        &mut self,
+        terminal: &mut DefaultTerminal,
+        rx: mpsc::Receiver<MavMsg>,
+    ) -> io::Result<()> {
         loop {
             while let Ok(msg) = rx.try_recv() {
                 self.push(msg);
@@ -149,20 +151,26 @@ impl App {
             if event::poll(std::time::Duration::from_millis(50))? {
                 if let Event::Key(key) = event::read()? {
                     if key.kind == KeyEventKind::Press {
-                        if key.code == KeyCode::Char('o') && key.modifiers.contains(KeyModifiers::CONTROL) {
+                        if key.code == KeyCode::Char('o')
+                            && key.modifiers.contains(KeyModifiers::CONTROL)
+                        {
                             self.open_docs();
                         }
                         let frame_h = terminal.get_frame().area().height.saturating_sub(4); // header + footer
                         let h = match self.active_panel {
                             Panel::Events => frame_h.saturating_sub(2) as usize, // full left column
-                            Panel::Stream => ((frame_h as u32 * 60 / 100) as u16).saturating_sub(2) as usize, // top 60%
+                            Panel::Stream => {
+                                ((frame_h as u32 * 60 / 100) as u16).saturating_sub(2) as usize
+                            } // top 60%
                         };
                         let total = self.active_total();
                         match key.code {
                             KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
-                            KeyCode::Tab | KeyCode::Left | KeyCode::Right | KeyCode::Char('h') | KeyCode::Char('l') => {
-                                self.toggle_panel()
-                            }
+                            KeyCode::Tab
+                            | KeyCode::Left
+                            | KeyCode::Right
+                            | KeyCode::Char('h')
+                            | KeyCode::Char('l') => self.toggle_panel(),
                             KeyCode::Up | KeyCode::Char('k') => self.active_scroll().select_up(1),
                             KeyCode::Down | KeyCode::Char('j') => {
                                 self.active_scroll().select_down(1, total, h)
@@ -190,23 +198,26 @@ fn draw(frame: &mut Frame, app: &mut App) {
 
     let header_style = Style::default().fg(Color::Cyan).bold();
     let header = Paragraph::new(vec![
-        Line::from(Span::styled(r" _____ _____ _ _ ___ ___ ___ ___ ___ ", header_style)),
-        Line::from(Span::styled(r"|     |  _  | | |_ -|   | .'|  _| '_|", header_style)),
-        Line::from(Span::styled(r"|_|_|_|__|__|\_/|___|_|_|__,|_| |_,_|", header_style)),
+        Line::from(Span::styled(
+            r" _____ _____ _ _ ___ ___ ___ ___ ___ ",
+            header_style,
+        )),
+        Line::from(Span::styled(
+            r"|     |  _  | | |_ -|   | .'|  _| '_|",
+            header_style,
+        )),
+        Line::from(Span::styled(
+            r"|_|_|_|__|__|\_/|___|_|_|__,|_| |_,_|",
+            header_style,
+        )),
     ]);
     frame.render_widget(header, rows[0]);
 
-    let columns = Layout::horizontal([
-        Constraint::Percentage(50),
-        Constraint::Percentage(50),
-    ])
-    .split(rows[1]);
+    let columns =
+        Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).split(rows[1]);
 
-    let right_rows = Layout::vertical([
-        Constraint::Percentage(60),
-        Constraint::Percentage(40),
-    ])
-    .split(columns[1]);
+    let right_rows = Layout::vertical([Constraint::Percentage(60), Constraint::Percentage(40)])
+        .split(columns[1]);
 
     let events_vh = columns[0].height.saturating_sub(2) as usize;
     let stream_vh = right_rows[0].height.saturating_sub(2) as usize;
@@ -243,9 +254,15 @@ fn draw(frame: &mut Frame, app: &mut App) {
     let footer = Line::from(vec![
         Span::styled(" q", Style::default().fg(Color::Cyan).bold()),
         Span::raw(" Quit  "),
-        Span::styled("Tab/\u{2190}\u{2192}/h/l", Style::default().fg(Color::Cyan).bold()),
+        Span::styled(
+            "Tab/\u{2190}\u{2192}/h/l",
+            Style::default().fg(Color::Cyan).bold(),
+        ),
         Span::raw(" Switch Panel  "),
-        Span::styled("\u{2191}\u{2193}/j/k", Style::default().fg(Color::Cyan).bold()),
+        Span::styled(
+            "\u{2191}\u{2193}/j/k",
+            Style::default().fg(Color::Cyan).bold(),
+        ),
         Span::raw(" Select  "),
         Span::styled("PgUp/PgDn", Style::default().fg(Color::Cyan).bold()),
         Span::raw(" Page  "),
@@ -305,8 +322,7 @@ fn draw_stream(
     let paragraph = Paragraph::new(lines).block(block);
     frame.render_widget(paragraph, area);
 
-    let mut scrollbar_state =
-        ScrollbarState::new(total.saturating_sub(vh)).position(scroll.offset);
+    let mut scrollbar_state = ScrollbarState::new(total.saturating_sub(vh)).position(scroll.offset);
     frame.render_stateful_widget(
         Scrollbar::new(ScrollbarOrientation::VerticalRight),
         area,
@@ -362,8 +378,7 @@ fn draw_events(
     let paragraph = Paragraph::new(lines).block(block);
     frame.render_widget(paragraph, area);
 
-    let mut scrollbar_state =
-        ScrollbarState::new(total.saturating_sub(vh)).position(scroll.offset);
+    let mut scrollbar_state = ScrollbarState::new(total.saturating_sub(vh)).position(scroll.offset);
     frame.render_stateful_widget(
         Scrollbar::new(ScrollbarOrientation::VerticalRight),
         area,
@@ -425,7 +440,13 @@ fn draw_message(
                 ))]
             } else {
                 let entry = &stream[stream_scroll.selected.min(stream.len() - 1)];
-                message_lines(entry.name, entry.sys_id, entry.comp_id, entry.color, entry.parsed_fields())
+                message_lines(
+                    entry.name,
+                    entry.sys_id,
+                    entry.comp_id,
+                    entry.color,
+                    entry.parsed_fields(),
+                )
             }
         }
         Panel::Events => {
@@ -437,11 +458,19 @@ fn draw_message(
                 ))]
             } else {
                 let entry = &events[events_scroll.selected.min(events.len() - 1)];
-                message_lines(entry.name, entry.sys_id, entry.comp_id, entry.color, entry.parsed_fields())
+                message_lines(
+                    entry.name,
+                    entry.sys_id,
+                    entry.comp_id,
+                    entry.color,
+                    entry.parsed_fields(),
+                )
             }
         }
     };
 
-    let paragraph = Paragraph::new(lines).block(block).wrap(ratatui::widgets::Wrap { trim: false });
+    let paragraph = Paragraph::new(lines)
+        .block(block)
+        .wrap(ratatui::widgets::Wrap { trim: false });
     frame.render_widget(paragraph, area);
 }
