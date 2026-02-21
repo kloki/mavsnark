@@ -153,7 +153,11 @@ impl App {
                         if key.code == KeyCode::Char('o') && key.modifiers.contains(KeyModifiers::CONTROL) {
                             self.open_docs();
                         }
-                        let h = terminal.get_frame().area().height.saturating_sub(2) as usize;
+                        let frame_h = terminal.get_frame().area().height.saturating_sub(4); // header + footer
+                        let h = match self.active_panel {
+                            Panel::Events => frame_h.saturating_sub(2) as usize, // full left column
+                            Panel::Stream => ((frame_h as u32 * 60 / 100) as u16).saturating_sub(2) as usize, // top 60%
+                        };
                         let total = self.active_total();
                         match key.code {
                             KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
@@ -193,34 +197,40 @@ fn draw(frame: &mut Frame, app: &mut App) {
     ]);
     frame.render_widget(header, rows[0]);
 
-    let chunks = Layout::horizontal([
-        Constraint::Percentage(35),
-        Constraint::Percentage(35),
-        Constraint::Percentage(30),
+    let columns = Layout::horizontal([
+        Constraint::Percentage(50),
+        Constraint::Percentage(50),
     ])
     .split(rows[1]);
 
-    let vh = chunks[0].height.saturating_sub(2) as usize;
+    let right_rows = Layout::vertical([
+        Constraint::Percentage(60),
+        Constraint::Percentage(40),
+    ])
+    .split(columns[1]);
+
+    let events_vh = columns[0].height.saturating_sub(2) as usize;
+    let stream_vh = right_rows[0].height.saturating_sub(2) as usize;
 
     // Auto-follow before drawing
     let stream_total = app.collector.stream().len();
-    app.stream_scroll.auto_follow(stream_total, vh);
+    app.stream_scroll.auto_follow(stream_total, stream_vh);
     let events_total = app.collector.events().len();
-    app.events_scroll.auto_follow(events_total, vh);
+    app.events_scroll.auto_follow(events_total, events_vh);
 
-    draw_stream(
-        frame,
-        &app.collector,
-        &app.stream_scroll,
-        chunks[0],
-        app.active_panel == Panel::Stream,
-    );
     draw_events(
         frame,
         &app.collector,
         &app.events_scroll,
-        chunks[1],
+        columns[0],
         app.active_panel == Panel::Events,
+    );
+    draw_stream(
+        frame,
+        &app.collector,
+        &app.stream_scroll,
+        right_rows[0],
+        app.active_panel == Panel::Stream,
     );
     draw_message(
         frame,
@@ -228,7 +238,7 @@ fn draw(frame: &mut Frame, app: &mut App) {
         &app.active_panel,
         &app.stream_scroll,
         &app.events_scroll,
-        chunks[2],
+        right_rows[1],
     );
 
     let footer = Line::from(vec![

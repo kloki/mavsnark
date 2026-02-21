@@ -10,8 +10,10 @@ A terminal UI for inspecting [MAVLink](https://mavlink.io/en/) traffic in real t
 
 - **Stream panel** — one row per unique message type (keyed by system/component/name), updated in place with seconds since last message
 - **Events panel** — chronological log of command, mission, param, and other one-shot messages
+- **Message detail panel** — shows all fields of the currently selected message
 - Color-coded by system/component ID and message category
-- Vim-style navigation (`j`/`k`, `g`/`G`, `PgUp`/`PgDn`) and `Tab`/arrow keys to switch panels
+- Selection cursor with Vim-style navigation (`j`/`k`, `g`/`G`, `PgUp`/`PgDn`) and `Tab`/arrow keys to switch panels
+- `Ctrl+O` opens the MAVLink docs for the selected message
 - MAVLink v2, any connection URI supported by the `mavlink` crate (`udpin:`, `tcpin:`, `serial:`, etc.)
 
 ## Usage
