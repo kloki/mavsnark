@@ -1,18 +1,12 @@
 services:
   px4:
     image: jonasvautherin/px4-gazebo-headless:1.16.1
-    command: mavp2p mavp2p
-    networks:
-      - mavnet
+    network_mode: host
 
-  mavp2p:
-    image: bluenviron/mavp2p
-    command: udps:0.0.0.0:14550 udps:0.0.0.0:14540
-    ports:
-      - "14550:14550/udp"
-      - "14540:14540/udp"
-    networks:
-      - mavnet
-
-networks:
-  mavnet:
+  # mavp2p:
+  #   image: bluenviron/mavp2p
+  #   network_mode: host
+  #   command:
+  #     - udps:0.0.0.0:14540
+  #     - udpc:0.0.0.0:5600
+  #     - udpc:0.0.0.0:5700
