@@ -85,3 +85,133 @@ impl MavMsg {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make(msg: MavMessage, sys_id: u8, comp_id: u8) -> MavMsg {
+        MavMsg {
+            header: MavHeader {
+                system_id: sys_id,
+                component_id: comp_id,
+                sequence: 0,
+            },
+            msg,
+            timestamp: chrono::Utc::now(),
+        }
+    }
+
+    #[test]
+    fn heartbeat_is_not_event() {
+        let m = make(
+            MavMessage::HEARTBEAT(mavlink::common::HEARTBEAT_DATA::default()),
+            1,
+            1,
+        );
+        assert!(!m.is_event());
+    }
+
+    #[test]
+    fn command_long_is_event() {
+        let m = make(
+            MavMessage::COMMAND_LONG(mavlink::common::COMMAND_LONG_DATA::default()),
+            1,
+            1,
+        );
+        assert!(m.is_event());
+    }
+
+    #[test]
+    fn mission_item_int_is_event() {
+        let m = make(
+            MavMessage::MISSION_ITEM_INT(mavlink::common::MISSION_ITEM_INT_DATA::default()),
+            1,
+            1,
+        );
+        assert!(m.is_event());
+    }
+
+    #[test]
+    fn color_deterministic() {
+        let m1 = make(
+            MavMessage::HEARTBEAT(mavlink::common::HEARTBEAT_DATA::default()),
+            1,
+            1,
+        );
+        let m2 = make(
+            MavMessage::HEARTBEAT(mavlink::common::HEARTBEAT_DATA::default()),
+            1,
+            1,
+        );
+        assert_eq!(m1.color(), m2.color());
+    }
+
+    #[test]
+    fn color_varies_by_id() {
+        let m1 = make(
+            MavMessage::HEARTBEAT(mavlink::common::HEARTBEAT_DATA::default()),
+            1,
+            1,
+        );
+        let m2 = make(
+            MavMessage::HEARTBEAT(mavlink::common::HEARTBEAT_DATA::default()),
+            2,
+            1,
+        );
+        // Different sys_id should (likely) produce different colors
+        // With the hash formula: (1*31+1)%6=2, (2*31+1)%6=3
+        assert_ne!(m1.color(), m2.color());
+    }
+
+    #[test]
+    fn msg_color_heartbeat() {
+        let m = make(
+            MavMessage::HEARTBEAT(mavlink::common::HEARTBEAT_DATA::default()),
+            1,
+            1,
+        );
+        assert_eq!(m.msg_color(), Some(Color::Magenta));
+    }
+
+    #[test]
+    fn msg_color_attitude() {
+        let m = make(
+            MavMessage::ATTITUDE(mavlink::common::ATTITUDE_DATA::default()),
+            1,
+            1,
+        );
+        assert_eq!(m.msg_color(), Some(Color::Blue));
+    }
+
+    #[test]
+    fn msg_color_none() {
+        let m = make(
+            MavMessage::SYS_STATUS(mavlink::common::SYS_STATUS_DATA::default()),
+            1,
+            1,
+        );
+        assert_eq!(m.msg_color(), None);
+    }
+
+    #[test]
+    fn fields_parses_debug() {
+        let m = make(
+            MavMessage::HEARTBEAT(mavlink::common::HEARTBEAT_DATA::default()),
+            1,
+            1,
+        );
+        let fields = m.fields();
+        assert!(fields.contains("mavtype"));
+    }
+
+    #[test]
+    fn msg_type_returns_name() {
+        let m = make(
+            MavMessage::HEARTBEAT(mavlink::common::HEARTBEAT_DATA::default()),
+            1,
+            1,
+        );
+        assert_eq!(m.msg_type(), "HEARTBEAT");
+    }
+}

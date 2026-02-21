@@ -4,7 +4,7 @@ use ratatui::{
     text::{Line, Span},
 };
 
-fn parse_fields(s: &str) -> Vec<(&str, &str)> {
+pub(crate) fn parse_fields(s: &str) -> Vec<(&str, &str)> {
     s.split(',')
         .filter_map(|part| {
             let part = part.trim();
@@ -83,5 +83,63 @@ impl EventEntry {
             Span::raw("] "),
             Span::styled(format!("{}: {}", self.name, self.fields), msg_style),
         ])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_basic_fields() {
+        let result = parse_fields("throttle: 500, yaw: 0.0");
+        assert_eq!(result, vec![("throttle", "500"), ("yaw", "0.0")]);
+    }
+
+    #[test]
+    fn parse_empty_string() {
+        let result = parse_fields("");
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn parse_trailing_comma() {
+        let result = parse_fields("a: 1,");
+        assert_eq!(result, vec![("a", "1")]);
+    }
+
+    #[test]
+    fn parse_no_colon() {
+        let result = parse_fields("garbage");
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn parsed_fields_on_stream_entry() {
+        let entry = StreamEntry {
+            color: Color::Red,
+            msg_color: None,
+            sys_id: 1,
+            comp_id: 1,
+            name: "TEST",
+            fields: "x: 10, y: 20".to_string(),
+            timestamp: Utc::now(),
+        };
+        let fields = entry.parsed_fields();
+        assert_eq!(fields, vec![("x", "10"), ("y", "20")]);
+    }
+
+    #[test]
+    fn parsed_fields_on_event_entry() {
+        let entry = EventEntry {
+            color: Color::Red,
+            msg_color: None,
+            sys_id: 1,
+            comp_id: 1,
+            name: "TEST",
+            fields: "cmd: 42".to_string(),
+        };
+        let fields = entry.parsed_fields();
+        assert_eq!(fields, vec![("cmd", "42")]);
     }
 }

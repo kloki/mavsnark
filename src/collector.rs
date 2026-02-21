@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 
-use crate::entries::{EventEntry, StreamEntry};
-use crate::message::MavMsg;
+use crate::{
+    entries::{EventEntry, StreamEntry},
+    message::MavMsg,
+};
 
 type StreamKey = (u8, u8, &'static str);
 
@@ -67,5 +69,121 @@ impl Collector {
 
     pub fn events(&self) -> &[EventEntry] {
         &self.events
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::Utc;
+    use mavlink::{MavHeader, common::MavMessage};
+
+    use super::*;
+
+    fn make_msg(msg: MavMessage, sys_id: u8, comp_id: u8) -> MavMsg {
+        MavMsg {
+            header: MavHeader {
+                system_id: sys_id,
+                component_id: comp_id,
+                sequence: 0,
+            },
+            msg,
+            timestamp: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn new_collector_is_empty() {
+        let c = Collector::new();
+        assert!(c.stream().is_empty());
+        assert!(c.events().is_empty());
+    }
+
+    #[test]
+    fn push_stream_message() {
+        let mut c = Collector::new();
+        let msg = make_msg(
+            MavMessage::HEARTBEAT(mavlink::common::HEARTBEAT_DATA::default()),
+            1,
+            1,
+        );
+        c.push(msg);
+        assert_eq!(c.stream().len(), 1);
+        assert!(c.events().is_empty());
+    }
+
+    #[test]
+    fn push_event_message() {
+        let mut c = Collector::new();
+        let msg = make_msg(
+            MavMessage::COMMAND_LONG(mavlink::common::COMMAND_LONG_DATA::default()),
+            1,
+            1,
+        );
+        c.push(msg);
+        assert!(c.stream().is_empty());
+        assert_eq!(c.events().len(), 1);
+    }
+
+    #[test]
+    fn stream_upsert_deduplicates() {
+        let mut c = Collector::new();
+        let msg1 = make_msg(
+            MavMessage::HEARTBEAT(mavlink::common::HEARTBEAT_DATA::default()),
+            1,
+            1,
+        );
+        let msg2 = make_msg(
+            MavMessage::HEARTBEAT(mavlink::common::HEARTBEAT_DATA::default()),
+            1,
+            1,
+        );
+        c.push(msg1);
+        c.push(msg2);
+        assert_eq!(c.stream().len(), 1);
+    }
+
+    #[test]
+    fn stream_different_keys_preserved() {
+        let mut c = Collector::new();
+        c.push(make_msg(
+            MavMessage::HEARTBEAT(mavlink::common::HEARTBEAT_DATA::default()),
+            1,
+            1,
+        ));
+        c.push(make_msg(
+            MavMessage::ATTITUDE(mavlink::common::ATTITUDE_DATA::default()),
+            1,
+            1,
+        ));
+        assert_eq!(c.stream().len(), 2);
+        assert_eq!(c.stream()[0].name, "HEARTBEAT");
+        assert_eq!(c.stream()[1].name, "ATTITUDE");
+    }
+
+    #[test]
+    fn mixed_stream_and_events() {
+        let mut c = Collector::new();
+        c.push(make_msg(
+            MavMessage::HEARTBEAT(mavlink::common::HEARTBEAT_DATA::default()),
+            1,
+            1,
+        ));
+        c.push(make_msg(
+            MavMessage::COMMAND_LONG(mavlink::common::COMMAND_LONG_DATA::default()),
+            1,
+            1,
+        ));
+        c.push(make_msg(
+            MavMessage::ATTITUDE(mavlink::common::ATTITUDE_DATA::default()),
+            1,
+            1,
+        ));
+        c.push(make_msg(
+            MavMessage::COMMAND_ACK(mavlink::common::COMMAND_ACK_DATA::default()),
+            1,
+            1,
+        ));
+        assert_eq!(c.stream().len(), 2);
+        assert_eq!(c.events().len(), 2);
     }
 }
