@@ -91,74 +91,49 @@ impl App {
             Panel::Commands => Panel::Telemetry,
         };
     }
-}
 
-pub fn run(terminal: &mut DefaultTerminal, rx: mpsc::Receiver<MavMsg>) -> io::Result<()> {
-    let mut app = App::new();
-
-    loop {
-        while let Ok(msg) = rx.try_recv() {
-            app.push(msg);
+    fn active_scroll(&mut self) -> &mut ScrollState {
+        match self.active_panel {
+            Panel::Telemetry => &mut self.telemetry_scroll,
+            Panel::Commands => &mut self.commands_scroll,
         }
+    }
 
-        terminal.draw(|frame| draw(frame, &mut app))?;
+    fn active_total(&self) -> usize {
+        match self.active_panel {
+            Panel::Telemetry => self.collector.telemetry_count(),
+            Panel::Commands => self.collector.commands().len(),
+        }
+    }
 
-        if event::poll(std::time::Duration::from_millis(50))? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
-                    let h = terminal.get_frame().area().height.saturating_sub(2) as usize;
-                    match key.code {
-                        KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
-                        KeyCode::Tab | KeyCode::Char('h') | KeyCode::Char('l') => {
-                            app.toggle_panel()
+    pub fn run(&mut self, terminal: &mut DefaultTerminal, rx: mpsc::Receiver<MavMsg>) -> io::Result<()> {
+        loop {
+            while let Ok(msg) = rx.try_recv() {
+                self.push(msg);
+            }
+
+            terminal.draw(|frame| draw(frame, self))?;
+
+            if event::poll(std::time::Duration::from_millis(50))? {
+                if let Event::Key(key) = event::read()? {
+                    if key.kind == KeyEventKind::Press {
+                        let h = terminal.get_frame().area().height.saturating_sub(2) as usize;
+                        let total = self.active_total();
+                        match key.code {
+                            KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
+                            KeyCode::Tab | KeyCode::Left | KeyCode::Right | KeyCode::Char('h') | KeyCode::Char('l') => {
+                                self.toggle_panel()
+                            }
+                            KeyCode::Up | KeyCode::Char('k') => self.active_scroll().scroll_up(1),
+                            KeyCode::Down | KeyCode::Char('j') => {
+                                self.active_scroll().scroll_down(1, total, h)
+                            }
+                            KeyCode::PageUp => self.active_scroll().scroll_up(h),
+                            KeyCode::PageDown => self.active_scroll().scroll_down(h, total, h),
+                            KeyCode::Char('g') => self.active_scroll().scroll_to_top(),
+                            KeyCode::Char('G') => self.active_scroll().scroll_to_bottom(total, h),
+                            _ => {}
                         }
-                        KeyCode::Up | KeyCode::Char('k') => match app.active_panel {
-                            Panel::Telemetry => app.telemetry_scroll.scroll_up(1),
-                            Panel::Commands => app.commands_scroll.scroll_up(1),
-                        },
-                        KeyCode::Down | KeyCode::Char('j') => match app.active_panel {
-                            Panel::Telemetry => app.telemetry_scroll.scroll_down(
-                                1,
-                                app.collector.telemetry_count(),
-                                h,
-                            ),
-                            Panel::Commands => app.commands_scroll.scroll_down(
-                                1,
-                                app.collector.commands().len(),
-                                h,
-                            ),
-                        },
-                        KeyCode::PageUp => match app.active_panel {
-                            Panel::Telemetry => app.telemetry_scroll.scroll_up(h),
-                            Panel::Commands => app.commands_scroll.scroll_up(h),
-                        },
-                        KeyCode::PageDown => match app.active_panel {
-                            Panel::Telemetry => app.telemetry_scroll.scroll_down(
-                                h,
-                                app.collector.telemetry_count(),
-                                h,
-                            ),
-                            Panel::Commands => app.commands_scroll.scroll_down(
-                                h,
-                                app.collector.commands().len(),
-                                h,
-                            ),
-                        },
-                        KeyCode::Char('g') => match app.active_panel {
-                            Panel::Telemetry => app.telemetry_scroll.scroll_to_top(),
-                            Panel::Commands => app.commands_scroll.scroll_to_top(),
-                        },
-                        KeyCode::Char('G') => match app.active_panel {
-                            Panel::Telemetry => app.telemetry_scroll.scroll_to_bottom(
-                                app.collector.telemetry_count(),
-                                h,
-                            ),
-                            Panel::Commands => app.commands_scroll.scroll_to_bottom(
-                                app.collector.commands().len(),
-                                h,
-                            ),
-                        },
-                        _ => {}
                     }
                 }
             }
@@ -167,8 +142,11 @@ pub fn run(terminal: &mut DefaultTerminal, rx: mpsc::Receiver<MavMsg>) -> io::Re
 }
 
 fn draw(frame: &mut Frame, app: &mut App) {
-    let chunks = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
+    let rows = Layout::vertical([Constraint::Min(0), Constraint::Length(1)])
         .split(frame.area());
+
+    let chunks = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(rows[0]);
 
     draw_telemetry(
         frame,
@@ -184,6 +162,20 @@ fn draw(frame: &mut Frame, app: &mut App) {
         chunks[1],
         app.active_panel == Panel::Commands,
     );
+
+    let footer = Line::from(vec![
+        Span::styled(" q", Style::default().fg(Color::Cyan).bold()),
+        Span::raw(" Quit  "),
+        Span::styled("Tab/\u{2190}\u{2192}/h/l", Style::default().fg(Color::Cyan).bold()),
+        Span::raw(" Switch Panel  "),
+        Span::styled("\u{2191}\u{2193}/j/k", Style::default().fg(Color::Cyan).bold()),
+        Span::raw(" Scroll  "),
+        Span::styled("PgUp/PgDn", Style::default().fg(Color::Cyan).bold()),
+        Span::raw(" Page  "),
+        Span::styled("g/G", Style::default().fg(Color::Cyan).bold()),
+        Span::raw(" Top/Bottom "),
+    ]);
+    frame.render_widget(Paragraph::new(footer), rows[1]);
 }
 
 fn draw_telemetry(

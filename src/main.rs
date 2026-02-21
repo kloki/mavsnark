@@ -37,7 +37,8 @@ fn main() -> io::Result<()> {
     });
 
     let mut terminal = ratatui::init();
-    let result = app::run(&mut terminal, rx);
+    let mut app = app::App::new();
+    let result = app.run(&mut terminal, rx);
     ratatui::restore();
     result
 }
