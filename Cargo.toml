@@ -1,7 +1,7 @@
 [package]
 name = "mavsnark"
-version = "0.2.0"
-edition = "2021"
+version = "0.2.1"
+edition = "2024"
 description = "wireshark for mavlink"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/kloki/mavsnark"
