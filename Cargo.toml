@@ -11,3 +11,4 @@ repository = "https://github.com/kloki/mavsnark"
 [dependencies]
 mavlink = { version = "0.17", features = ["common"] }
 colored = "3"
+clap = { version = "4", features = ["derive"] }
