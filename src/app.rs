@@ -1,6 +1,4 @@
-use std::collections::HashMap;
-use std::io;
-use std::sync::mpsc;
+use std::{collections::HashMap, io, sync::mpsc};
 
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use ratatui::{
@@ -11,26 +9,7 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
 };
 
-const COLORS: &[Color] = &[
-    Color::Red,
-    Color::Green,
-    Color::Yellow,
-    Color::Blue,
-    Color::Magenta,
-    Color::Cyan,
-];
-
-pub fn color_for(system_id: u8, component_id: u8) -> Color {
-    let idx = (system_id as usize * 31 + component_id as usize) % COLORS.len();
-    COLORS[idx]
-}
-
-pub struct Message {
-    pub color: Color,
-    pub text: String,
-    pub msg_type: String,
-    pub is_command: bool,
-}
+use crate::message::MavMsg;
 
 struct TelemetryEntry {
     color: Color,
@@ -65,11 +44,7 @@ impl TelemetryPanel {
     }
 
     fn sorted_entries(&self) -> Vec<(&str, &TelemetryEntry)> {
-        let mut entries: Vec<_> = self
-            .entries
-            .iter()
-            .map(|(k, v)| (k.as_str(), v))
-            .collect();
+        let mut entries: Vec<_> = self.entries.iter().map(|(k, v)| (k.as_str(), v)).collect();
         entries.sort_by(|a, b| b.1.count.cmp(&a.1.count));
         entries
     }
@@ -173,11 +148,14 @@ impl App {
         }
     }
 
-    pub fn push(&mut self, msg: Message) {
-        if msg.is_command {
-            self.commands.push(msg.color, msg.text);
+    pub fn push(&mut self, msg: MavMsg) {
+        let color = msg.color();
+        let text = msg.text();
+        if msg.is_command() {
+            self.commands.push(color, text);
         } else {
-            self.telemetry.push(msg.msg_type, msg.color, msg.text);
+            self.telemetry
+                .push(msg.msg_type().to_string(), color, text);
         }
     }
 
@@ -189,7 +167,7 @@ impl App {
     }
 }
 
-pub fn run(terminal: &mut DefaultTerminal, rx: mpsc::Receiver<Message>) -> io::Result<()> {
+pub fn run(terminal: &mut DefaultTerminal, rx: mpsc::Receiver<MavMsg>) -> io::Result<()> {
     let mut app = App::new();
 
     loop {
@@ -244,8 +222,18 @@ fn draw(frame: &mut Frame, app: &App) {
     let chunks = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
         .split(frame.area());
 
-    draw_telemetry(frame, &app.telemetry, chunks[0], app.active_panel == Panel::Telemetry);
-    draw_commands(frame, &app.commands, chunks[1], app.active_panel == Panel::Commands);
+    draw_telemetry(
+        frame,
+        &app.telemetry,
+        chunks[0],
+        app.active_panel == Panel::Telemetry,
+    );
+    draw_commands(
+        frame,
+        &app.commands,
+        chunks[1],
+        app.active_panel == Panel::Commands,
+    );
 }
 
 fn draw_telemetry(frame: &mut Frame, panel: &TelemetryPanel, area: Rect, active: bool) {
