@@ -182,20 +182,19 @@ impl App {
 
             terminal.draw(|frame| draw(frame, self))?;
 
-            if event::poll(std::time::Duration::from_millis(50))? {
-                if let Event::Key(key) = event::read()? {
-                    if key.kind == KeyEventKind::Press {
-                        let frame_h = terminal.get_frame().area().height.saturating_sub(4);
-                        let h = match self.active_panel {
-                            Panel::Events => frame_h.saturating_sub(2) as usize,
-                            Panel::Stream => {
-                                ((frame_h as u32 * 60 / 100) as u16).saturating_sub(2) as usize
-                            }
-                        };
-                        if self.handle_key(key.code, key.modifiers, h) {
-                            return Ok(());
-                        }
+            if event::poll(std::time::Duration::from_millis(50))?
+                && let Event::Key(key) = event::read()?
+                && key.kind == KeyEventKind::Press
+            {
+                let frame_h = terminal.get_frame().area().height.saturating_sub(4);
+                let h = match self.active_panel {
+                    Panel::Events => frame_h.saturating_sub(2) as usize,
+                    Panel::Stream => {
+                        ((frame_h as u32 * 60 / 100) as u16).saturating_sub(2) as usize
                     }
+                };
+                if self.handle_key(key.code, key.modifiers, h) {
+                    return Ok(());
                 }
             }
         }
