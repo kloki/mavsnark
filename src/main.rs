@@ -3,6 +3,7 @@ mod collector;
 mod connection;
 mod entries;
 mod message;
+mod scroll;
 
 use std::{io, sync::mpsc, thread};
 

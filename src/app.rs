@@ -1,15 +1,15 @@
-use std::{io, sync::mpsc};
+use std::{io, sync::LazyLock, sync::mpsc};
 
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::{
     DefaultTerminal, Frame,
-    layout::{Constraint, Layout, Rect},
+    layout::{Constraint, Layout},
     style::{Color, Style, Stylize},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
 };
 
-use crate::{collector::Collector, message::MavMsg};
+use crate::{collector::Collector, message::MavMsg, scroll::ScrollState};
 
 #[derive(Debug, PartialEq)]
 enum Panel {
@@ -17,62 +17,42 @@ enum Panel {
     Events,
 }
 
-struct ScrollState {
-    offset: usize,
-    selected: usize,
-    auto_scroll: bool,
-}
 
-impl ScrollState {
-    fn new() -> Self {
-        Self {
-            offset: 0,
-            selected: 0,
-            auto_scroll: true,
-        }
-    }
+static HEADER: LazyLock<Paragraph<'static>> = LazyLock::new(|| {
+    let style = Style::default().fg(Color::Cyan).bold();
+    Paragraph::new(vec![
+        Line::from(Span::styled(
+            r" _____ _____ _ _ ___ ___ ___ ___ ___ ",
+            style,
+        )),
+        Line::from(Span::styled(
+            r"|     |  _  | | |_ -|   | .'|  _| '_|",
+            style,
+        )),
+        Line::from(Span::styled(
+            r"|_|_|_|__|__|\_/|___|_|_|__,|_| |_,_|",
+            style,
+        )),
+    ])
+});
 
-    fn select_up(&mut self, amount: usize) {
-        self.auto_scroll = false;
-        self.selected = self.selected.saturating_sub(amount);
-        if self.selected < self.offset {
-            self.offset = self.selected;
-        }
-    }
-
-    fn select_down(&mut self, amount: usize, total: usize, visible: usize) {
-        if total == 0 {
-            return;
-        }
-        self.selected = self.selected.saturating_add(amount).min(total - 1);
-        if self.selected >= self.offset + visible {
-            self.offset = self.selected.saturating_sub(visible - 1);
-        }
-        self.auto_scroll = self.selected >= total.saturating_sub(1);
-    }
-
-    fn select_top(&mut self) {
-        self.auto_scroll = false;
-        self.selected = 0;
-        self.offset = 0;
-    }
-
-    fn select_bottom(&mut self, total: usize, visible: usize) {
-        if total == 0 {
-            return;
-        }
-        self.auto_scroll = true;
-        self.selected = total - 1;
-        self.offset = total.saturating_sub(visible);
-    }
-
-    fn auto_follow(&mut self, total: usize, visible: usize) {
-        if self.auto_scroll && total > 0 {
-            self.selected = total - 1;
-            self.offset = total.saturating_sub(visible);
-        }
-    }
-}
+static FOOTER: LazyLock<Paragraph<'static>> = LazyLock::new(|| {
+    let key = Style::default().fg(Color::Cyan).bold();
+    Paragraph::new(Line::from(vec![
+        Span::styled(" q", key),
+        Span::raw(" Quit  "),
+        Span::styled("Tab/\u{2190}\u{2192}/h/l", key),
+        Span::raw(" Switch Panel  "),
+        Span::styled("\u{2191}\u{2193}/j/k", key),
+        Span::raw(" Select  "),
+        Span::styled("PgUp/PgDn", key),
+        Span::raw(" Page  "),
+        Span::styled("g/G", key),
+        Span::raw(" Top/Bottom  "),
+        Span::styled("Ctrl+o", key),
+        Span::raw(" Docs "),
+    ]))
+});
 
 pub struct App {
     collector: Collector,
@@ -202,22 +182,7 @@ impl App {
         ])
         .split(frame.area());
 
-        let header_style = Style::default().fg(Color::Cyan).bold();
-        let header = Paragraph::new(vec![
-            Line::from(Span::styled(
-                r" _____ _____ _ _ ___ ___ ___ ___ ___ ",
-                header_style,
-            )),
-            Line::from(Span::styled(
-                r"|     |  _  | | |_ -|   | .'|  _| '_|",
-                header_style,
-            )),
-            Line::from(Span::styled(
-                r"|_|_|_|__|__|\_/|___|_|_|__,|_| |_,_|",
-                header_style,
-            )),
-        ]);
-        frame.render_widget(header, rows[0]);
+        frame.render_widget(&*HEADER, rows[0]);
 
         let columns = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
             .split(rows[1]);
@@ -234,36 +199,30 @@ impl App {
         let events_total = self.collector.events().len();
         self.events_scroll.auto_follow(events_total, self.events_vh);
 
-        self.draw_events(frame, columns[0]);
-        self.draw_stream(frame, right_rows[0]);
-        self.draw_message(frame, right_rows[1]);
+        let (events_widget, mut events_sb) = self.build_events();
+        frame.render_widget(events_widget, columns[0]);
+        frame.render_stateful_widget(
+            Scrollbar::new(ScrollbarOrientation::VerticalRight),
+            columns[0],
+            &mut events_sb,
+        );
 
-        let footer = Line::from(vec![
-            Span::styled(" q", Style::default().fg(Color::Cyan).bold()),
-            Span::raw(" Quit  "),
-            Span::styled(
-                "Tab/\u{2190}\u{2192}/h/l",
-                Style::default().fg(Color::Cyan).bold(),
-            ),
-            Span::raw(" Switch Panel  "),
-            Span::styled(
-                "\u{2191}\u{2193}/j/k",
-                Style::default().fg(Color::Cyan).bold(),
-            ),
-            Span::raw(" Select  "),
-            Span::styled("PgUp/PgDn", Style::default().fg(Color::Cyan).bold()),
-            Span::raw(" Page  "),
-            Span::styled("g/G", Style::default().fg(Color::Cyan).bold()),
-            Span::raw(" Top/Bottom  "),
-            Span::styled("Ctrl+o", Style::default().fg(Color::Cyan).bold()),
-            Span::raw(" Docs "),
-        ]);
-        frame.render_widget(Paragraph::new(footer), rows[2]);
+        let (stream_widget, mut stream_sb) = self.build_stream();
+        frame.render_widget(stream_widget, right_rows[0]);
+        frame.render_stateful_widget(
+            Scrollbar::new(ScrollbarOrientation::VerticalRight),
+            right_rows[0],
+            &mut stream_sb,
+        );
+
+        frame.render_widget(self.build_message(), right_rows[1]);
+
+        frame.render_widget(&*FOOTER, rows[2]);
     }
 
-    fn draw_stream(&self, frame: &mut Frame, area: Rect) {
+    fn build_stream(&self) -> (Paragraph<'_>, ScrollbarState) {
         let active = self.active_panel == Panel::Stream;
-        let vh = area.height.saturating_sub(2) as usize;
+        let vh = self.stream_vh;
         let stream = self.collector.stream();
         let total = stream.len();
 
@@ -284,42 +243,18 @@ impl App {
             })
             .collect();
 
-        let title = format!(
-            " Stream [{} types] {} ",
-            total,
-            if self.stream_scroll.auto_scroll {
-                "[AUTO]"
-            } else {
-                ""
-            }
-        );
-
-        let border_style = if active {
-            Style::default().fg(Color::Cyan).bold()
-        } else {
-            Style::default().fg(Color::Gray)
-        };
-
-        let block = Block::default()
-            .title(title)
-            .borders(Borders::ALL)
-            .border_style(border_style);
+        let block = panel_block("Stream", total, self.stream_scroll.auto_scroll, active);
 
         let paragraph = Paragraph::new(lines).block(block);
-        frame.render_widget(paragraph, area);
-
-        let mut scrollbar_state =
+        let scrollbar_state =
             ScrollbarState::new(total.saturating_sub(vh)).position(self.stream_scroll.offset);
-        frame.render_stateful_widget(
-            Scrollbar::new(ScrollbarOrientation::VerticalRight),
-            area,
-            &mut scrollbar_state,
-        );
+
+        (paragraph, scrollbar_state)
     }
 
-    fn draw_events(&self, frame: &mut Frame, area: Rect) {
+    fn build_events(&self) -> (Paragraph<'_>, ScrollbarState) {
         let active = self.active_panel == Panel::Events;
-        let vh = area.height.saturating_sub(2) as usize;
+        let vh = self.events_vh;
         let events = self.collector.events();
         let total = events.len();
 
@@ -340,40 +275,16 @@ impl App {
             })
             .collect();
 
-        let title = format!(
-            " Events [{}] {} ",
-            total,
-            if self.events_scroll.auto_scroll {
-                "[AUTO]"
-            } else {
-                ""
-            }
-        );
-
-        let border_style = if active {
-            Style::default().fg(Color::Cyan).bold()
-        } else {
-            Style::default().fg(Color::Gray)
-        };
-
-        let block = Block::default()
-            .title(title)
-            .borders(Borders::ALL)
-            .border_style(border_style);
+        let block = panel_block("Events", total, self.events_scroll.auto_scroll, active);
 
         let paragraph = Paragraph::new(lines).block(block);
-        frame.render_widget(paragraph, area);
-
-        let mut scrollbar_state =
+        let scrollbar_state =
             ScrollbarState::new(total.saturating_sub(vh)).position(self.events_scroll.offset);
-        frame.render_stateful_widget(
-            Scrollbar::new(ScrollbarOrientation::VerticalRight),
-            area,
-            &mut scrollbar_state,
-        );
+
+        (paragraph, scrollbar_state)
     }
 
-    fn draw_message(&self, frame: &mut Frame, area: Rect) {
+    fn build_message(&self) -> Paragraph<'_> {
         let block = Block::default()
             .title(" Message ")
             .borders(Borders::ALL)
@@ -402,11 +313,26 @@ impl App {
             ))],
         };
 
-        let paragraph = Paragraph::new(lines)
+        Paragraph::new(lines)
             .block(block)
-            .wrap(ratatui::widgets::Wrap { trim: false });
-        frame.render_widget(paragraph, area);
+            .wrap(ratatui::widgets::Wrap { trim: false })
     }
+}
+
+fn panel_block(label: &str, count: usize, auto_scroll: bool, active: bool) -> Block<'_> {
+    let title = format!(
+        " {label} [{count}] {} ",
+        if auto_scroll { "[AUTO]" } else { "" }
+    );
+    let border_style = if active {
+        Style::default().fg(Color::Cyan).bold()
+    } else {
+        Style::default().fg(Color::Gray)
+    };
+    Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_style(border_style)
 }
 
 fn message_lines(
@@ -449,6 +375,7 @@ mod tests {
 
     fn make_app_with_stream_entries(n: usize) -> App {
         let mut app = App::new();
+        app.active_panel = Panel::Stream;
         app.stream_vh = 10;
         app.events_vh = 10;
         for i in 0..n {
@@ -461,82 +388,6 @@ mod tests {
             app.push(MavMsg::new(header, msg));
         }
         app
-    }
-
-    // --- ScrollState tests ---
-
-    #[test]
-    fn scroll_up_from_zero() {
-        let mut s = ScrollState::new();
-        s.select_up(1);
-        assert_eq!(s.selected, 0);
-        assert_eq!(s.offset, 0);
-    }
-
-    #[test]
-    fn scroll_down_clamps_to_total() {
-        let mut s = ScrollState::new();
-        s.select_down(100, 5, 10);
-        assert_eq!(s.selected, 4);
-    }
-
-    #[test]
-    fn scroll_down_adjusts_offset() {
-        let mut s = ScrollState::new();
-        // visible=3, total=10, go down 5 times
-        for _ in 0..5 {
-            s.select_down(1, 10, 3);
-        }
-        assert_eq!(s.selected, 5);
-        // offset should have adjusted so selected is visible
-        assert!(s.offset + 3 > s.selected);
-    }
-
-    #[test]
-    fn scroll_up_adjusts_offset() {
-        let mut s = ScrollState::new();
-        // Go to bottom first
-        s.select_bottom(10, 3);
-        // Now scroll up
-        s.select_up(5);
-        assert_eq!(s.selected, 4);
-        assert!(s.offset <= s.selected);
-    }
-
-    #[test]
-    fn select_top_resets() {
-        let mut s = ScrollState::new();
-        s.select_down(5, 10, 3);
-        s.select_top();
-        assert_eq!(s.selected, 0);
-        assert_eq!(s.offset, 0);
-    }
-
-    #[test]
-    fn select_bottom_jumps_to_end() {
-        let mut s = ScrollState::new();
-        s.select_bottom(10, 3);
-        assert_eq!(s.selected, 9);
-        assert_eq!(s.offset, 7);
-    }
-
-    #[test]
-    fn auto_follow_when_enabled() {
-        let mut s = ScrollState::new();
-        s.auto_scroll = true;
-        s.auto_follow(10, 5);
-        assert_eq!(s.selected, 9);
-        assert_eq!(s.offset, 5);
-    }
-
-    #[test]
-    fn auto_follow_noop_when_disabled() {
-        let mut s = ScrollState::new();
-
-        s.auto_scroll = false;
-        s.auto_follow(10, 5);
-        assert_eq!(s.selected, 0);
-        assert_eq!(s.offset, 0);
     }
 
     // --- handle_key tests ---
@@ -572,11 +423,11 @@ mod tests {
     #[test]
     fn tab_toggles_panel() {
         let mut app = App::new();
-        assert_eq!(app.active_panel, Panel::Stream);
-        app.handle_key(KeyCode::Tab, KeyModifiers::NONE);
         assert_eq!(app.active_panel, Panel::Events);
         app.handle_key(KeyCode::Tab, KeyModifiers::NONE);
         assert_eq!(app.active_panel, Panel::Stream);
+        app.handle_key(KeyCode::Tab, KeyModifiers::NONE);
+        assert_eq!(app.active_panel, Panel::Events);
     }
 
     #[test]
