@@ -1,7 +1,6 @@
 use std::io;
 use std::sync::mpsc;
 
-use chrono::Utc;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::{
     DefaultTerminal, Frame,
@@ -344,8 +343,7 @@ fn draw_events(
         .collect();
 
     let title = format!(
-        " Events [{}/{}] {} ",
-        scroll.offset + 1,
+        " Events [{}] {} ",
         total,
         if scroll.auto_scroll { "[AUTO]" } else { "" }
     );
@@ -373,6 +371,37 @@ fn draw_events(
     );
 }
 
+fn message_lines(
+    name: &'static str,
+    sys_id: u8,
+    comp_id: u8,
+    color: Color,
+    fields: Vec<(&str, &str)>,
+) -> Vec<Line<'static>> {
+    let colored = Style::default().fg(color);
+    let label = Style::default().fg(Color::Gray);
+    let mut lines = vec![
+        Line::from(Span::styled(name, Style::default().fg(Color::Cyan).bold())),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("sys_id  ", label),
+            Span::styled(format!("{}", sys_id), colored),
+        ]),
+        Line::from(vec![
+            Span::styled("comp_id ", label),
+            Span::styled(format!("{}", comp_id), colored),
+        ]),
+        Line::from(""),
+    ];
+    for (key, value) in fields {
+        lines.push(Line::from(vec![
+            Span::styled(format!("{key}: "), label),
+            Span::raw(value.to_string()),
+        ]));
+    }
+    lines
+}
+
 fn draw_message(
     frame: &mut Frame,
     collector: &Collector,
@@ -396,36 +425,7 @@ fn draw_message(
                 ))]
             } else {
                 let entry = &stream[stream_scroll.selected.min(stream.len() - 1)];
-                let colored = Style::default().fg(entry.color);
-                let ago = Utc::now()
-                    .signed_duration_since(entry.timestamp)
-                    .num_milliseconds() as f64
-                    / 1000.0;
-                let label = Style::default().fg(Color::Gray);
-                let mut lines = vec![
-                    Line::from(Span::styled(entry.name, Style::default().fg(Color::Cyan).bold())),
-                    Line::from(""),
-                    Line::from(vec![
-                        Span::styled("sys_id  ", label),
-                        Span::styled(format!("{}", entry.sys_id), colored),
-                    ]),
-                    Line::from(vec![
-                        Span::styled("comp_id ", label),
-                        Span::styled(format!("{}", entry.comp_id), colored),
-                    ]),
-                    Line::from(vec![
-                        Span::styled("age     ", label),
-                        Span::raw(format!("{ago:.1}s")),
-                    ]),
-                    Line::from(""),
-                ];
-                for (key, value) in entry.parsed_fields() {
-                    lines.push(Line::from(vec![
-                        Span::styled(format!("{key}: "), label),
-                        Span::raw(value),
-                    ]));
-                }
-                lines
+                message_lines(entry.name, entry.sys_id, entry.comp_id, entry.color, entry.parsed_fields())
             }
         }
         Panel::Events => {
@@ -437,28 +437,7 @@ fn draw_message(
                 ))]
             } else {
                 let entry = &events[events_scroll.selected.min(events.len() - 1)];
-                let colored = Style::default().fg(entry.color);
-                let label = Style::default().fg(Color::Gray);
-                let mut lines = vec![
-                    Line::from(Span::styled(entry.name, Style::default().fg(Color::Cyan).bold())),
-                    Line::from(""),
-                    Line::from(vec![
-                        Span::styled("sys_id  ", label),
-                        Span::styled(format!("{}", entry.sys_id), colored),
-                    ]),
-                    Line::from(vec![
-                        Span::styled("comp_id ", label),
-                        Span::styled(format!("{}", entry.comp_id), colored),
-                    ]),
-                    Line::from(""),
-                ];
-                for (key, value) in entry.parsed_fields() {
-                    lines.push(Line::from(vec![
-                        Span::styled(format!("{key}: "), label),
-                        Span::raw(value),
-                    ]));
-                }
-                lines
+                message_lines(entry.name, entry.sys_id, entry.comp_id, entry.color, entry.parsed_fields())
             }
         }
     };
