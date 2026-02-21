@@ -79,6 +79,8 @@ pub struct App {
     stream_scroll: ScrollState,
     events_scroll: ScrollState,
     active_panel: Panel,
+    stream_vh: usize,
+    events_vh: usize,
 }
 
 impl App {
@@ -87,7 +89,9 @@ impl App {
             collector: Collector::new(),
             stream_scroll: ScrollState::new(),
             events_scroll: ScrollState::new(),
-            active_panel: Panel::Stream,
+            active_panel: Panel::Events,
+            stream_vh: 0,
+            events_vh: 0,
         }
     }
 
@@ -136,35 +140,33 @@ impl App {
         }
     }
 
-    /// Handle a key press. Returns `true` if the app should quit.
-    pub fn handle_key(
-        &mut self,
-        code: KeyCode,
-        modifiers: KeyModifiers,
-        visible_height: usize,
-    ) -> bool {
-        if code == KeyCode::Char('o') && modifiers.contains(KeyModifiers::CONTROL) {
-            self.open_docs();
+    fn active_vh(&self) -> usize {
+        match self.active_panel {
+            Panel::Stream => self.stream_vh,
+            Panel::Events => self.events_vh,
         }
+    }
+
+    /// Handle a key press. Returns `true` if the app should quit.
+    pub fn handle_key(&mut self, code: KeyCode, modifiers: KeyModifiers) -> bool {
         let total = self.active_total();
-        match code {
-            KeyCode::Char('q') | KeyCode::Esc => return true,
-            KeyCode::Tab
-            | KeyCode::Left
-            | KeyCode::Right
-            | KeyCode::Char('h')
-            | KeyCode::Char('l') => self.toggle_panel(),
-            KeyCode::Up | KeyCode::Char('k') => self.active_scroll().select_up(1),
-            KeyCode::Down | KeyCode::Char('j') => {
-                self.active_scroll().select_down(1, total, visible_height)
+        let vh = self.active_vh();
+        match (code, modifiers) {
+            (KeyCode::Char('q'), _) | (KeyCode::Esc, _) => return true,
+            (KeyCode::Char('o'), m) if m.contains(KeyModifiers::CONTROL) => self.open_docs(),
+            (KeyCode::Tab, _)
+            | (KeyCode::Left, _)
+            | (KeyCode::Right, _)
+            | (KeyCode::Char('h'), _)
+            | (KeyCode::Char('l'), _) => self.toggle_panel(),
+            (KeyCode::Up, _) | (KeyCode::Char('k'), _) => self.active_scroll().select_up(1),
+            (KeyCode::Down, _) | (KeyCode::Char('j'), _) => {
+                self.active_scroll().select_down(1, total, vh)
             }
-            KeyCode::PageUp => self.active_scroll().select_up(visible_height),
-            KeyCode::PageDown => {
-                self.active_scroll()
-                    .select_down(visible_height, total, visible_height)
-            }
-            KeyCode::Char('g') => self.active_scroll().select_top(),
-            KeyCode::Char('G') => self.active_scroll().select_bottom(total, visible_height),
+            (KeyCode::PageUp, _) => self.active_scroll().select_up(vh),
+            (KeyCode::PageDown, _) => self.active_scroll().select_down(vh, total, vh),
+            (KeyCode::Char('g'), _) => self.active_scroll().select_top(),
+            (KeyCode::Char('G'), _) => self.active_scroll().select_bottom(total, vh),
             _ => {}
         }
         false
@@ -180,223 +182,231 @@ impl App {
                 self.push(msg);
             }
 
-            terminal.draw(|frame| draw(frame, self))?;
+            terminal.draw(|frame| self.draw(frame))?;
 
             if event::poll(std::time::Duration::from_millis(50))?
                 && let Event::Key(key) = event::read()?
                 && key.kind == KeyEventKind::Press
+                && self.handle_key(key.code, key.modifiers)
             {
-                let frame_h = terminal.get_frame().area().height.saturating_sub(4);
-                let h = match self.active_panel {
-                    Panel::Events => frame_h.saturating_sub(2) as usize,
-                    Panel::Stream => {
-                        ((frame_h as u32 * 60 / 100) as u16).saturating_sub(2) as usize
-                    }
-                };
-                if self.handle_key(key.code, key.modifiers, h) {
-                    return Ok(());
-                }
+                return Ok(());
             }
         }
     }
-}
 
-fn draw(frame: &mut Frame, app: &mut App) {
-    let rows = Layout::vertical([
-        Constraint::Length(3),
-        Constraint::Min(0),
-        Constraint::Length(1),
-    ])
-    .split(frame.area());
+    fn draw(&mut self, frame: &mut Frame) {
+        let rows = Layout::vertical([
+            Constraint::Length(3),
+            Constraint::Min(0),
+            Constraint::Length(1),
+        ])
+        .split(frame.area());
 
-    let header_style = Style::default().fg(Color::Cyan).bold();
-    let header = Paragraph::new(vec![
-        Line::from(Span::styled(
-            r" _____ _____ _ _ ___ ___ ___ ___ ___ ",
-            header_style,
-        )),
-        Line::from(Span::styled(
-            r"|     |  _  | | |_ -|   | .'|  _| '_|",
-            header_style,
-        )),
-        Line::from(Span::styled(
-            r"|_|_|_|__|__|\_/|___|_|_|__,|_| |_,_|",
-            header_style,
-        )),
-    ]);
-    frame.render_widget(header, rows[0]);
+        let header_style = Style::default().fg(Color::Cyan).bold();
+        let header = Paragraph::new(vec![
+            Line::from(Span::styled(
+                r" _____ _____ _ _ ___ ___ ___ ___ ___ ",
+                header_style,
+            )),
+            Line::from(Span::styled(
+                r"|     |  _  | | |_ -|   | .'|  _| '_|",
+                header_style,
+            )),
+            Line::from(Span::styled(
+                r"|_|_|_|__|__|\_/|___|_|_|__,|_| |_,_|",
+                header_style,
+            )),
+        ]);
+        frame.render_widget(header, rows[0]);
 
-    let columns =
-        Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).split(rows[1]);
+        let columns = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .split(rows[1]);
 
-    let right_rows = Layout::vertical([Constraint::Percentage(60), Constraint::Percentage(40)])
-        .split(columns[1]);
+        let right_rows = Layout::vertical([Constraint::Percentage(60), Constraint::Percentage(40)])
+            .split(columns[1]);
 
-    let events_vh = columns[0].height.saturating_sub(2) as usize;
-    let stream_vh = right_rows[0].height.saturating_sub(2) as usize;
+        self.events_vh = columns[0].height.saturating_sub(2) as usize;
+        self.stream_vh = right_rows[0].height.saturating_sub(2) as usize;
 
-    // Auto-follow before drawing
-    let stream_total = app.collector.stream().len();
-    app.stream_scroll.auto_follow(stream_total, stream_vh);
-    let events_total = app.collector.events().len();
-    app.events_scroll.auto_follow(events_total, events_vh);
+        // Auto-follow before drawing
+        let stream_total = self.collector.stream().len();
+        self.stream_scroll.auto_follow(stream_total, self.stream_vh);
+        let events_total = self.collector.events().len();
+        self.events_scroll.auto_follow(events_total, self.events_vh);
 
-    draw_events(
-        frame,
-        &app.collector,
-        &app.events_scroll,
-        columns[0],
-        app.active_panel == Panel::Events,
-    );
-    draw_stream(
-        frame,
-        &app.collector,
-        &app.stream_scroll,
-        right_rows[0],
-        app.active_panel == Panel::Stream,
-    );
-    draw_message(
-        frame,
-        &app.collector,
-        &app.active_panel,
-        &app.stream_scroll,
-        &app.events_scroll,
-        right_rows[1],
-    );
+        self.draw_events(frame, columns[0]);
+        self.draw_stream(frame, right_rows[0]);
+        self.draw_message(frame, right_rows[1]);
 
-    let footer = Line::from(vec![
-        Span::styled(" q", Style::default().fg(Color::Cyan).bold()),
-        Span::raw(" Quit  "),
-        Span::styled(
-            "Tab/\u{2190}\u{2192}/h/l",
-            Style::default().fg(Color::Cyan).bold(),
-        ),
-        Span::raw(" Switch Panel  "),
-        Span::styled(
-            "\u{2191}\u{2193}/j/k",
-            Style::default().fg(Color::Cyan).bold(),
-        ),
-        Span::raw(" Select  "),
-        Span::styled("PgUp/PgDn", Style::default().fg(Color::Cyan).bold()),
-        Span::raw(" Page  "),
-        Span::styled("g/G", Style::default().fg(Color::Cyan).bold()),
-        Span::raw(" Top/Bottom  "),
-        Span::styled("Ctrl+o", Style::default().fg(Color::Cyan).bold()),
-        Span::raw(" Docs "),
-    ]);
-    frame.render_widget(Paragraph::new(footer), rows[2]);
-}
+        let footer = Line::from(vec![
+            Span::styled(" q", Style::default().fg(Color::Cyan).bold()),
+            Span::raw(" Quit  "),
+            Span::styled(
+                "Tab/\u{2190}\u{2192}/h/l",
+                Style::default().fg(Color::Cyan).bold(),
+            ),
+            Span::raw(" Switch Panel  "),
+            Span::styled(
+                "\u{2191}\u{2193}/j/k",
+                Style::default().fg(Color::Cyan).bold(),
+            ),
+            Span::raw(" Select  "),
+            Span::styled("PgUp/PgDn", Style::default().fg(Color::Cyan).bold()),
+            Span::raw(" Page  "),
+            Span::styled("g/G", Style::default().fg(Color::Cyan).bold()),
+            Span::raw(" Top/Bottom  "),
+            Span::styled("Ctrl+o", Style::default().fg(Color::Cyan).bold()),
+            Span::raw(" Docs "),
+        ]);
+        frame.render_widget(Paragraph::new(footer), rows[2]);
+    }
 
-fn draw_stream(
-    frame: &mut Frame,
-    collector: &Collector,
-    scroll: &ScrollState,
-    area: Rect,
-    active: bool,
-) {
-    let vh = area.height.saturating_sub(2) as usize;
-    let stream = collector.stream();
-    let total = stream.len();
+    fn draw_stream(&self, frame: &mut Frame, area: Rect) {
+        let active = self.active_panel == Panel::Stream;
+        let vh = area.height.saturating_sub(2) as usize;
+        let stream = self.collector.stream();
+        let total = stream.len();
 
-    let selected_style = Style::default().bg(Color::DarkGray);
+        let selected_style = Style::default().bg(Color::DarkGray);
 
-    let lines: Vec<Line> = stream
-        .iter()
-        .enumerate()
-        .skip(scroll.offset)
-        .take(vh)
-        .map(|(i, entry)| {
-            let line = entry.to_line();
-            if active && i == scroll.selected {
-                line.style(selected_style)
+        let lines: Vec<Line> = stream
+            .iter()
+            .enumerate()
+            .skip(self.stream_scroll.offset)
+            .take(vh)
+            .map(|(i, entry)| {
+                let line = entry.to_line();
+                if active && i == self.stream_scroll.selected {
+                    line.style(selected_style)
+                } else {
+                    line
+                }
+            })
+            .collect();
+
+        let title = format!(
+            " Stream [{} types] {} ",
+            total,
+            if self.stream_scroll.auto_scroll {
+                "[AUTO]"
             } else {
-                line
+                ""
             }
-        })
-        .collect();
+        );
 
-    let title = format!(
-        " Stream [{} types] {} ",
-        total,
-        if scroll.auto_scroll { "[AUTO]" } else { "" }
-    );
+        let border_style = if active {
+            Style::default().fg(Color::Cyan).bold()
+        } else {
+            Style::default().fg(Color::Gray)
+        };
 
-    let border_style = if active {
-        Style::default().fg(Color::Cyan).bold()
-    } else {
-        Style::default().fg(Color::Gray)
-    };
+        let block = Block::default()
+            .title(title)
+            .borders(Borders::ALL)
+            .border_style(border_style);
 
-    let block = Block::default()
-        .title(title)
-        .borders(Borders::ALL)
-        .border_style(border_style);
+        let paragraph = Paragraph::new(lines).block(block);
+        frame.render_widget(paragraph, area);
 
-    let paragraph = Paragraph::new(lines).block(block);
-    frame.render_widget(paragraph, area);
+        let mut scrollbar_state =
+            ScrollbarState::new(total.saturating_sub(vh)).position(self.stream_scroll.offset);
+        frame.render_stateful_widget(
+            Scrollbar::new(ScrollbarOrientation::VerticalRight),
+            area,
+            &mut scrollbar_state,
+        );
+    }
 
-    let mut scrollbar_state = ScrollbarState::new(total.saturating_sub(vh)).position(scroll.offset);
-    frame.render_stateful_widget(
-        Scrollbar::new(ScrollbarOrientation::VerticalRight),
-        area,
-        &mut scrollbar_state,
-    );
-}
+    fn draw_events(&self, frame: &mut Frame, area: Rect) {
+        let active = self.active_panel == Panel::Events;
+        let vh = area.height.saturating_sub(2) as usize;
+        let events = self.collector.events();
+        let total = events.len();
 
-fn draw_events(
-    frame: &mut Frame,
-    collector: &Collector,
-    scroll: &ScrollState,
-    area: Rect,
-    active: bool,
-) {
-    let vh = area.height.saturating_sub(2) as usize;
-    let events = collector.events();
-    let total = events.len();
+        let selected_style = Style::default().bg(Color::DarkGray);
 
-    let selected_style = Style::default().bg(Color::DarkGray);
+        let lines: Vec<Line> = events
+            .iter()
+            .enumerate()
+            .skip(self.events_scroll.offset)
+            .take(vh)
+            .map(|(i, entry)| {
+                let line = entry.to_line();
+                if active && i == self.events_scroll.selected {
+                    line.style(selected_style)
+                } else {
+                    line
+                }
+            })
+            .collect();
 
-    let lines: Vec<Line> = events
-        .iter()
-        .enumerate()
-        .skip(scroll.offset)
-        .take(vh)
-        .map(|(i, entry)| {
-            let line = entry.to_line();
-            if active && i == scroll.selected {
-                line.style(selected_style)
+        let title = format!(
+            " Events [{}] {} ",
+            total,
+            if self.events_scroll.auto_scroll {
+                "[AUTO]"
             } else {
-                line
+                ""
             }
-        })
-        .collect();
+        );
 
-    let title = format!(
-        " Events [{}] {} ",
-        total,
-        if scroll.auto_scroll { "[AUTO]" } else { "" }
-    );
+        let border_style = if active {
+            Style::default().fg(Color::Cyan).bold()
+        } else {
+            Style::default().fg(Color::Gray)
+        };
 
-    let border_style = if active {
-        Style::default().fg(Color::Cyan).bold()
-    } else {
-        Style::default().fg(Color::Gray)
-    };
+        let block = Block::default()
+            .title(title)
+            .borders(Borders::ALL)
+            .border_style(border_style);
 
-    let block = Block::default()
-        .title(title)
-        .borders(Borders::ALL)
-        .border_style(border_style);
+        let paragraph = Paragraph::new(lines).block(block);
+        frame.render_widget(paragraph, area);
 
-    let paragraph = Paragraph::new(lines).block(block);
-    frame.render_widget(paragraph, area);
+        let mut scrollbar_state =
+            ScrollbarState::new(total.saturating_sub(vh)).position(self.events_scroll.offset);
+        frame.render_stateful_widget(
+            Scrollbar::new(ScrollbarOrientation::VerticalRight),
+            area,
+            &mut scrollbar_state,
+        );
+    }
 
-    let mut scrollbar_state = ScrollbarState::new(total.saturating_sub(vh)).position(scroll.offset);
-    frame.render_stateful_widget(
-        Scrollbar::new(ScrollbarOrientation::VerticalRight),
-        area,
-        &mut scrollbar_state,
-    );
+    fn draw_message(&self, frame: &mut Frame, area: Rect) {
+        let block = Block::default()
+            .title(" Message ")
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Gray));
+
+        let selected = match self.active_panel {
+            Panel::Stream => {
+                let s = self.collector.stream();
+                s.get(self.stream_scroll.selected.min(s.len().saturating_sub(1)))
+                    .map(|e| (e.name, e.sys_id, e.comp_id, e.color, e.parsed_fields()))
+            }
+            Panel::Events => {
+                let e = self.collector.events();
+                e.get(self.events_scroll.selected.min(e.len().saturating_sub(1)))
+                    .map(|e| (e.name, e.sys_id, e.comp_id, e.color, e.parsed_fields()))
+            }
+        };
+
+        let lines: Vec<Line> = match selected {
+            Some((name, sys_id, comp_id, color, fields)) => {
+                message_lines(name, sys_id, comp_id, color, fields)
+            }
+            None => vec![Line::from(Span::styled(
+                "No messages",
+                Style::default().fg(Color::DarkGray),
+            ))],
+        };
+
+        let paragraph = Paragraph::new(lines)
+            .block(block)
+            .wrap(ratatui::widgets::Wrap { trim: false });
+        frame.render_widget(paragraph, area);
+    }
 }
 
 fn message_lines(
@@ -430,64 +440,6 @@ fn message_lines(
     lines
 }
 
-fn draw_message(
-    frame: &mut Frame,
-    collector: &Collector,
-    active_panel: &Panel,
-    stream_scroll: &ScrollState,
-    events_scroll: &ScrollState,
-    area: Rect,
-) {
-    let block = Block::default()
-        .title(" Message ")
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Gray));
-
-    let lines: Vec<Line> = match active_panel {
-        Panel::Stream => {
-            let stream = collector.stream();
-            if stream.is_empty() {
-                vec![Line::from(Span::styled(
-                    "No messages",
-                    Style::default().fg(Color::DarkGray),
-                ))]
-            } else {
-                let entry = &stream[stream_scroll.selected.min(stream.len() - 1)];
-                message_lines(
-                    entry.name,
-                    entry.sys_id,
-                    entry.comp_id,
-                    entry.color,
-                    entry.parsed_fields(),
-                )
-            }
-        }
-        Panel::Events => {
-            let events = collector.events();
-            if events.is_empty() {
-                vec![Line::from(Span::styled(
-                    "No events",
-                    Style::default().fg(Color::DarkGray),
-                ))]
-            } else {
-                let entry = &events[events_scroll.selected.min(events.len() - 1)];
-                message_lines(
-                    entry.name,
-                    entry.sys_id,
-                    entry.comp_id,
-                    entry.color,
-                    entry.parsed_fields(),
-                )
-            }
-        }
-    };
-
-    let paragraph = Paragraph::new(lines)
-        .block(block)
-        .wrap(ratatui::widgets::Wrap { trim: false });
-    frame.render_widget(paragraph, area);
-}
-
 #[cfg(test)]
 mod tests {
     use mavlink::{MavHeader, common::MavMessage};
@@ -497,6 +449,8 @@ mod tests {
 
     fn make_app_with_stream_entries(n: usize) -> App {
         let mut app = App::new();
+        app.stream_vh = 10;
+        app.events_vh = 10;
         for i in 0..n {
             let header = MavHeader {
                 system_id: i as u8,
@@ -590,28 +544,28 @@ mod tests {
     #[test]
     fn quit_on_q() {
         let mut app = App::new();
-        assert!(app.handle_key(KeyCode::Char('q'), KeyModifiers::NONE, 10));
+        assert!(app.handle_key(KeyCode::Char('q'), KeyModifiers::NONE));
     }
 
     #[test]
     fn quit_on_esc() {
         let mut app = App::new();
-        assert!(app.handle_key(KeyCode::Esc, KeyModifiers::NONE, 10));
+        assert!(app.handle_key(KeyCode::Esc, KeyModifiers::NONE));
     }
 
     #[test]
     fn j_moves_down() {
         let mut app = make_app_with_stream_entries(5);
-        app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE, 10);
+        app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
         assert_eq!(app.stream_scroll.selected, 1);
     }
 
     #[test]
     fn k_moves_up() {
         let mut app = make_app_with_stream_entries(5);
-        app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE, 10);
-        app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE, 10);
-        app.handle_key(KeyCode::Char('k'), KeyModifiers::NONE, 10);
+        app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
+        app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
+        app.handle_key(KeyCode::Char('k'), KeyModifiers::NONE);
         assert_eq!(app.stream_scroll.selected, 1);
     }
 
@@ -619,25 +573,25 @@ mod tests {
     fn tab_toggles_panel() {
         let mut app = App::new();
         assert_eq!(app.active_panel, Panel::Stream);
-        app.handle_key(KeyCode::Tab, KeyModifiers::NONE, 10);
+        app.handle_key(KeyCode::Tab, KeyModifiers::NONE);
         assert_eq!(app.active_panel, Panel::Events);
-        app.handle_key(KeyCode::Tab, KeyModifiers::NONE, 10);
+        app.handle_key(KeyCode::Tab, KeyModifiers::NONE);
         assert_eq!(app.active_panel, Panel::Stream);
     }
 
     #[test]
     fn g_selects_top() {
         let mut app = make_app_with_stream_entries(5);
-        app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE, 10);
-        app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE, 10);
-        app.handle_key(KeyCode::Char('g'), KeyModifiers::NONE, 10);
+        app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
+        app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
+        app.handle_key(KeyCode::Char('g'), KeyModifiers::NONE);
         assert_eq!(app.stream_scroll.selected, 0);
     }
 
     #[test]
     fn big_g_selects_bottom() {
         let mut app = make_app_with_stream_entries(5);
-        app.handle_key(KeyCode::Char('G'), KeyModifiers::NONE, 10);
+        app.handle_key(KeyCode::Char('G'), KeyModifiers::NONE);
         assert_eq!(app.stream_scroll.selected, 4);
     }
 }
