@@ -50,7 +50,7 @@ impl MavMsg {
         let debug = format!("{:?}", self.msg);
         let start = debug.find('{').map(|i| i + 1).unwrap_or(0);
         let end = debug.rfind('}').unwrap_or(debug.len());
-        debug[start..end].replace(',', "").trim().to_string()
+        debug[start..end].trim().to_string()
     }
 
     #[allow(deprecated)]

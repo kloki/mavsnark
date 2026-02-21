@@ -1,12 +1,12 @@
 mod app;
 mod collector;
 mod connection;
+mod entries;
 mod message;
 
 use std::{io, sync::mpsc, thread};
 
 use clap::Parser;
-
 use message::MavMsg;
 
 #[derive(Parser)]
@@ -32,10 +32,14 @@ fn main() -> io::Result<()> {
             match connection.recv() {
                 Ok((header, msg)) => {
                     if tx.send(MavMsg::new(header, msg)).is_err() {
+                        eprintln!("receiver dropped, stopping read thread");
                         break;
                     }
                 }
-                Err(_) => {}
+                Err(e) => {
+                    eprintln!("mavlink recv error: {e}");
+                    break;
+                }
             }
         }
     });

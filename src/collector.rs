@@ -1,73 +1,7 @@
 use std::collections::HashMap;
 
-use chrono::{DateTime, Utc};
-use ratatui::{
-    style::{Color, Style},
-    text::{Line, Span},
-};
-
+use crate::entries::{EventEntry, StreamEntry};
 use crate::message::MavMsg;
-
-pub struct StreamEntry {
-    pub color: Color,
-    pub msg_color: Option<Color>,
-    pub sys_id: u8,
-    pub comp_id: u8,
-    pub name: &'static str,
-    pub fields: String,
-    pub timestamp: DateTime<Utc>,
-}
-
-impl StreamEntry {
-    pub fn to_line(&self) -> Line<'_> {
-        let colored = Style::default().fg(self.color);
-        let ago = Utc::now()
-            .signed_duration_since(self.timestamp)
-            .num_milliseconds() as f64
-            / 1000.0;
-        let gray = Style::default().fg(Color::DarkGray);
-        let msg_style = match self.msg_color {
-            Some(c) => Style::default().fg(c),
-            None => Style::default(),
-        };
-        Line::from(vec![
-            Span::raw("["),
-            Span::styled(format!("{:>3}", self.sys_id), colored),
-            Span::raw(":"),
-            Span::styled(format!("{:>3}", self.comp_id), colored),
-            Span::raw("] "),
-            Span::styled(format!("{ago:>6.1}s "), gray),
-            Span::styled(format!("{}: {}", self.name, self.fields), msg_style),
-        ])
-    }
-}
-
-pub struct EventEntry {
-    pub color: Color,
-    pub msg_color: Option<Color>,
-    pub sys_id: u8,
-    pub comp_id: u8,
-    pub name: &'static str,
-    pub fields: String,
-}
-
-impl EventEntry {
-    pub fn to_line(&self) -> Line<'_> {
-        let colored = Style::default().fg(self.color);
-        let msg_style = match self.msg_color {
-            Some(c) => Style::default().fg(c),
-            None => Style::default(),
-        };
-        Line::from(vec![
-            Span::raw("["),
-            Span::styled(format!("{:>3}", self.sys_id), colored),
-            Span::raw(":"),
-            Span::styled(format!("{:>3}", self.comp_id), colored),
-            Span::raw("] "),
-            Span::styled(format!("{}: {}", self.name, self.fields), msg_style),
-        ])
-    }
-}
 
 type StreamKey = (u8, u8, &'static str);
 

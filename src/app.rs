@@ -1,7 +1,8 @@
 use std::io;
 use std::sync::mpsc;
 
-use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use chrono::Utc;
+use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::{
     DefaultTerminal, Frame,
     layout::{Constraint, Layout, Rect},
@@ -21,6 +22,7 @@ enum Panel {
 
 struct ScrollState {
     offset: usize,
+    selected: usize,
     auto_scroll: bool,
 }
 
@@ -28,37 +30,48 @@ impl ScrollState {
     fn new() -> Self {
         Self {
             offset: 0,
+            selected: 0,
             auto_scroll: true,
         }
     }
 
-    fn scroll_up(&mut self, amount: usize) {
+    fn select_up(&mut self, amount: usize) {
         self.auto_scroll = false;
-        self.offset = self.offset.saturating_sub(amount);
-    }
-
-    fn scroll_down(&mut self, amount: usize, total: usize, visible: usize) {
-        self.offset = self
-            .offset
-            .saturating_add(amount)
-            .min(total.saturating_sub(visible));
-        if self.offset >= total.saturating_sub(visible) {
-            self.auto_scroll = true;
+        self.selected = self.selected.saturating_sub(amount);
+        if self.selected < self.offset {
+            self.offset = self.selected;
         }
     }
 
-    fn scroll_to_top(&mut self) {
+    fn select_down(&mut self, amount: usize, total: usize, visible: usize) {
+        if total == 0 {
+            return;
+        }
+        self.selected = self.selected.saturating_add(amount).min(total - 1);
+        if self.selected >= self.offset + visible {
+            self.offset = self.selected.saturating_sub(visible - 1);
+        }
+        self.auto_scroll = self.selected >= total.saturating_sub(1);
+    }
+
+    fn select_top(&mut self) {
         self.auto_scroll = false;
+        self.selected = 0;
         self.offset = 0;
     }
 
-    fn scroll_to_bottom(&mut self, total: usize, visible: usize) {
+    fn select_bottom(&mut self, total: usize, visible: usize) {
+        if total == 0 {
+            return;
+        }
         self.auto_scroll = true;
+        self.selected = total - 1;
         self.offset = total.saturating_sub(visible);
     }
 
     fn auto_follow(&mut self, total: usize, visible: usize) {
-        if self.auto_scroll {
+        if self.auto_scroll && total > 0 {
+            self.selected = total - 1;
             self.offset = total.saturating_sub(visible);
         }
     }
@@ -99,6 +112,26 @@ impl App {
         }
     }
 
+    fn selected_name(&self) -> Option<&'static str> {
+        match self.active_panel {
+            Panel::Stream => {
+                let stream = self.collector.stream();
+                stream.get(self.stream_scroll.selected).map(|e| e.name)
+            }
+            Panel::Events => {
+                let events = self.collector.events();
+                events.get(self.events_scroll.selected).map(|e| e.name)
+            }
+        }
+    }
+
+    fn open_docs(&self) {
+        if let Some(name) = self.selected_name() {
+            let url = format!("https://mavlink.io/en/messages/common.html#{name}");
+            let _ = open::that(url);
+        }
+    }
+
     fn active_total(&self) -> usize {
         match self.active_panel {
             Panel::Stream => self.collector.stream().len(),
@@ -117,6 +150,9 @@ impl App {
             if event::poll(std::time::Duration::from_millis(50))? {
                 if let Event::Key(key) = event::read()? {
                     if key.kind == KeyEventKind::Press {
+                        if key.code == KeyCode::Char('o') && key.modifiers.contains(KeyModifiers::CONTROL) {
+                            self.open_docs();
+                        }
                         let h = terminal.get_frame().area().height.saturating_sub(2) as usize;
                         let total = self.active_total();
                         match key.code {
@@ -124,14 +160,14 @@ impl App {
                             KeyCode::Tab | KeyCode::Left | KeyCode::Right | KeyCode::Char('h') | KeyCode::Char('l') => {
                                 self.toggle_panel()
                             }
-                            KeyCode::Up | KeyCode::Char('k') => self.active_scroll().scroll_up(1),
+                            KeyCode::Up | KeyCode::Char('k') => self.active_scroll().select_up(1),
                             KeyCode::Down | KeyCode::Char('j') => {
-                                self.active_scroll().scroll_down(1, total, h)
+                                self.active_scroll().select_down(1, total, h)
                             }
-                            KeyCode::PageUp => self.active_scroll().scroll_up(h),
-                            KeyCode::PageDown => self.active_scroll().scroll_down(h, total, h),
-                            KeyCode::Char('g') => self.active_scroll().scroll_to_top(),
-                            KeyCode::Char('G') => self.active_scroll().scroll_to_bottom(total, h),
+                            KeyCode::PageUp => self.active_scroll().select_up(h),
+                            KeyCode::PageDown => self.active_scroll().select_down(h, total, h),
+                            KeyCode::Char('g') => self.active_scroll().select_top(),
+                            KeyCode::Char('G') => self.active_scroll().select_bottom(total, h),
                             _ => {}
                         }
                     }
@@ -157,22 +193,42 @@ fn draw(frame: &mut Frame, app: &mut App) {
     ]);
     frame.render_widget(header, rows[0]);
 
-    let chunks = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
-        .split(rows[1]);
+    let chunks = Layout::horizontal([
+        Constraint::Percentage(35),
+        Constraint::Percentage(35),
+        Constraint::Percentage(30),
+    ])
+    .split(rows[1]);
+
+    let vh = chunks[0].height.saturating_sub(2) as usize;
+
+    // Auto-follow before drawing
+    let stream_total = app.collector.stream().len();
+    app.stream_scroll.auto_follow(stream_total, vh);
+    let events_total = app.collector.events().len();
+    app.events_scroll.auto_follow(events_total, vh);
 
     draw_stream(
         frame,
         &app.collector,
-        &mut app.stream_scroll,
+        &app.stream_scroll,
         chunks[0],
         app.active_panel == Panel::Stream,
     );
     draw_events(
         frame,
         &app.collector,
-        &mut app.events_scroll,
+        &app.events_scroll,
         chunks[1],
         app.active_panel == Panel::Events,
+    );
+    draw_message(
+        frame,
+        &app.collector,
+        &app.active_panel,
+        &app.stream_scroll,
+        &app.events_scroll,
+        chunks[2],
     );
 
     let footer = Line::from(vec![
@@ -181,11 +237,13 @@ fn draw(frame: &mut Frame, app: &mut App) {
         Span::styled("Tab/\u{2190}\u{2192}/h/l", Style::default().fg(Color::Cyan).bold()),
         Span::raw(" Switch Panel  "),
         Span::styled("\u{2191}\u{2193}/j/k", Style::default().fg(Color::Cyan).bold()),
-        Span::raw(" Scroll  "),
+        Span::raw(" Select  "),
         Span::styled("PgUp/PgDn", Style::default().fg(Color::Cyan).bold()),
         Span::raw(" Page  "),
         Span::styled("g/G", Style::default().fg(Color::Cyan).bold()),
-        Span::raw(" Top/Bottom "),
+        Span::raw(" Top/Bottom  "),
+        Span::styled("Ctrl+o", Style::default().fg(Color::Cyan).bold()),
+        Span::raw(" Docs "),
     ]);
     frame.render_widget(Paragraph::new(footer), rows[2]);
 }
@@ -193,7 +251,7 @@ fn draw(frame: &mut Frame, app: &mut App) {
 fn draw_stream(
     frame: &mut Frame,
     collector: &Collector,
-    scroll: &mut ScrollState,
+    scroll: &ScrollState,
     area: Rect,
     active: bool,
 ) {
@@ -201,13 +259,21 @@ fn draw_stream(
     let stream = collector.stream();
     let total = stream.len();
 
-    scroll.auto_follow(total, vh);
+    let selected_style = Style::default().bg(Color::DarkGray);
 
     let lines: Vec<Line> = stream
         .iter()
+        .enumerate()
         .skip(scroll.offset)
         .take(vh)
-        .map(|entry| entry.to_line())
+        .map(|(i, entry)| {
+            let line = entry.to_line();
+            if active && i == scroll.selected {
+                line.style(selected_style)
+            } else {
+                line
+            }
+        })
         .collect();
 
     let title = format!(
@@ -219,7 +285,7 @@ fn draw_stream(
     let border_style = if active {
         Style::default().fg(Color::Cyan).bold()
     } else {
-        Style::default().fg(Color::DarkGray)
+        Style::default().fg(Color::Gray)
     };
 
     let block = Block::default()
@@ -242,7 +308,7 @@ fn draw_stream(
 fn draw_events(
     frame: &mut Frame,
     collector: &Collector,
-    scroll: &mut ScrollState,
+    scroll: &ScrollState,
     area: Rect,
     active: bool,
 ) {
@@ -250,13 +316,21 @@ fn draw_events(
     let events = collector.events();
     let total = events.len();
 
-    scroll.auto_follow(total, vh);
+    let selected_style = Style::default().bg(Color::DarkGray);
 
     let lines: Vec<Line> = events
         .iter()
+        .enumerate()
         .skip(scroll.offset)
         .take(vh)
-        .map(|entry| entry.to_line())
+        .map(|(i, entry)| {
+            let line = entry.to_line();
+            if active && i == scroll.selected {
+                line.style(selected_style)
+            } else {
+                line
+            }
+        })
         .collect();
 
     let title = format!(
@@ -269,7 +343,7 @@ fn draw_events(
     let border_style = if active {
         Style::default().fg(Color::Cyan).bold()
     } else {
-        Style::default().fg(Color::DarkGray)
+        Style::default().fg(Color::Gray)
     };
 
     let block = Block::default()
@@ -287,4 +361,98 @@ fn draw_events(
         area,
         &mut scrollbar_state,
     );
+}
+
+fn draw_message(
+    frame: &mut Frame,
+    collector: &Collector,
+    active_panel: &Panel,
+    stream_scroll: &ScrollState,
+    events_scroll: &ScrollState,
+    area: Rect,
+) {
+    let block = Block::default()
+        .title(" Message ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Gray));
+
+    let lines: Vec<Line> = match active_panel {
+        Panel::Stream => {
+            let stream = collector.stream();
+            if stream.is_empty() {
+                vec![Line::from(Span::styled(
+                    "No messages",
+                    Style::default().fg(Color::DarkGray),
+                ))]
+            } else {
+                let entry = &stream[stream_scroll.selected.min(stream.len() - 1)];
+                let colored = Style::default().fg(entry.color);
+                let ago = Utc::now()
+                    .signed_duration_since(entry.timestamp)
+                    .num_milliseconds() as f64
+                    / 1000.0;
+                let label = Style::default().fg(Color::Gray);
+                let mut lines = vec![
+                    Line::from(Span::styled(entry.name, Style::default().fg(Color::Cyan).bold())),
+                    Line::from(""),
+                    Line::from(vec![
+                        Span::styled("sys_id  ", label),
+                        Span::styled(format!("{}", entry.sys_id), colored),
+                    ]),
+                    Line::from(vec![
+                        Span::styled("comp_id ", label),
+                        Span::styled(format!("{}", entry.comp_id), colored),
+                    ]),
+                    Line::from(vec![
+                        Span::styled("age     ", label),
+                        Span::raw(format!("{ago:.1}s")),
+                    ]),
+                    Line::from(""),
+                ];
+                for (key, value) in entry.parsed_fields() {
+                    lines.push(Line::from(vec![
+                        Span::styled(format!("{key}: "), label),
+                        Span::raw(value),
+                    ]));
+                }
+                lines
+            }
+        }
+        Panel::Events => {
+            let events = collector.events();
+            if events.is_empty() {
+                vec![Line::from(Span::styled(
+                    "No events",
+                    Style::default().fg(Color::DarkGray),
+                ))]
+            } else {
+                let entry = &events[events_scroll.selected.min(events.len() - 1)];
+                let colored = Style::default().fg(entry.color);
+                let label = Style::default().fg(Color::Gray);
+                let mut lines = vec![
+                    Line::from(Span::styled(entry.name, Style::default().fg(Color::Cyan).bold())),
+                    Line::from(""),
+                    Line::from(vec![
+                        Span::styled("sys_id  ", label),
+                        Span::styled(format!("{}", entry.sys_id), colored),
+                    ]),
+                    Line::from(vec![
+                        Span::styled("comp_id ", label),
+                        Span::styled(format!("{}", entry.comp_id), colored),
+                    ]),
+                    Line::from(""),
+                ];
+                for (key, value) in entry.parsed_fields() {
+                    lines.push(Line::from(vec![
+                        Span::styled(format!("{key}: "), label),
+                        Span::raw(value),
+                    ]));
+                }
+                lines
+            }
+        }
+    };
+
+    let paragraph = Paragraph::new(lines).block(block).wrap(ratatui::widgets::Wrap { trim: false });
+    frame.render_widget(paragraph, area);
 }
