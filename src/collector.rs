@@ -45,6 +45,7 @@ impl Collector {
             if let Some(&idx) = self.stream_index.get(&key) {
                 let entry = &mut self.stream[idx];
                 entry.color = color;
+                entry.msg_color = msg_color;
                 entry.fields = fields;
                 entry.timestamp = timestamp;
             } else {

@@ -9,14 +9,13 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
 };
 
-use crate::{collector::Collector, message::MavMsg, scroll::ScrollState};
+use crate::{collector::Collector, entries::Entry, message::MavMsg, scroll::ScrollState};
 
 #[derive(Debug, PartialEq)]
 enum Panel {
     Stream,
     Events,
 }
-
 
 static HEADER: LazyLock<Paragraph<'static>> = LazyLock::new(|| {
     let style = Style::default().fg(Color::Cyan).bold();
@@ -73,10 +72,6 @@ impl App {
             stream_vh: 0,
             events_vh: 0,
         }
-    }
-
-    pub fn push(&mut self, msg: MavMsg) {
-        self.collector.push(msg);
     }
 
     fn toggle_panel(&mut self) {
@@ -159,7 +154,7 @@ impl App {
     ) -> io::Result<()> {
         loop {
             while let Ok(msg) = rx.try_recv() {
-                self.push(msg);
+                self.collector.push(msg);
             }
 
             terminal.draw(|frame| self.draw(frame))?;
@@ -199,7 +194,14 @@ impl App {
         let events_total = self.collector.events().len();
         self.events_scroll.auto_follow(events_total, self.events_vh);
 
-        let (events_widget, mut events_sb) = self.build_events();
+        let (events_widget, mut events_sb) = build_panel(
+            self.collector.events(),
+            &self.events_scroll,
+            self.events_vh,
+            "Events",
+            "",
+            self.active_panel == Panel::Events,
+        );
         frame.render_widget(events_widget, columns[0]);
         frame.render_stateful_widget(
             Scrollbar::new(ScrollbarOrientation::VerticalRight),
@@ -207,7 +209,14 @@ impl App {
             &mut events_sb,
         );
 
-        let (stream_widget, mut stream_sb) = self.build_stream();
+        let (stream_widget, mut stream_sb) = build_panel(
+            self.collector.stream(),
+            &self.stream_scroll,
+            self.stream_vh,
+            "Stream",
+            "types",
+            self.active_panel == Panel::Stream,
+        );
         frame.render_widget(stream_widget, right_rows[0]);
         frame.render_stateful_widget(
             Scrollbar::new(ScrollbarOrientation::VerticalRight),
@@ -220,93 +229,33 @@ impl App {
         frame.render_widget(&*FOOTER, rows[2]);
     }
 
-    fn build_stream(&self) -> (Paragraph<'_>, ScrollbarState) {
-        let active = self.active_panel == Panel::Stream;
-        let vh = self.stream_vh;
-        let stream = self.collector.stream();
-        let total = stream.len();
-
-        let selected_style = Style::default().bg(Color::DarkGray);
-
-        let lines: Vec<Line> = stream
-            .iter()
-            .enumerate()
-            .skip(self.stream_scroll.offset)
-            .take(vh)
-            .map(|(i, entry)| {
-                let line = entry.to_line();
-                if active && i == self.stream_scroll.selected {
-                    line.style(selected_style)
-                } else {
-                    line
-                }
-            })
-            .collect();
-
-        let block = panel_block("Stream", total, self.stream_scroll.auto_scroll, active);
-
-        let paragraph = Paragraph::new(lines).block(block);
-        let scrollbar_state =
-            ScrollbarState::new(total.saturating_sub(vh)).position(self.stream_scroll.offset);
-
-        (paragraph, scrollbar_state)
-    }
-
-    fn build_events(&self) -> (Paragraph<'_>, ScrollbarState) {
-        let active = self.active_panel == Panel::Events;
-        let vh = self.events_vh;
-        let events = self.collector.events();
-        let total = events.len();
-
-        let selected_style = Style::default().bg(Color::DarkGray);
-
-        let lines: Vec<Line> = events
-            .iter()
-            .enumerate()
-            .skip(self.events_scroll.offset)
-            .take(vh)
-            .map(|(i, entry)| {
-                let line = entry.to_line();
-                if active && i == self.events_scroll.selected {
-                    line.style(selected_style)
-                } else {
-                    line
-                }
-            })
-            .collect();
-
-        let block = panel_block("Events", total, self.events_scroll.auto_scroll, active);
-
-        let paragraph = Paragraph::new(lines).block(block);
-        let scrollbar_state =
-            ScrollbarState::new(total.saturating_sub(vh)).position(self.events_scroll.offset);
-
-        (paragraph, scrollbar_state)
-    }
-
     fn build_message(&self) -> Paragraph<'_> {
         let block = Block::default()
             .title(" Message ")
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::Gray));
 
-        let selected = match self.active_panel {
+        let selected: Option<&dyn Entry> = match self.active_panel {
             Panel::Stream => {
                 let s = self.collector.stream();
                 s.get(self.stream_scroll.selected.min(s.len().saturating_sub(1)))
-                    .map(|e| (e.name, e.sys_id, e.comp_id, e.color, e.parsed_fields()))
+                    .map(|e| e as &dyn Entry)
             }
             Panel::Events => {
                 let e = self.collector.events();
                 e.get(self.events_scroll.selected.min(e.len().saturating_sub(1)))
-                    .map(|e| (e.name, e.sys_id, e.comp_id, e.color, e.parsed_fields()))
+                    .map(|e| e as &dyn Entry)
             }
         };
 
         let lines: Vec<Line> = match selected {
-            Some((name, sys_id, comp_id, color, fields)) => {
-                message_lines(name, sys_id, comp_id, color, fields)
-            }
+            Some(entry) => message_lines(
+                entry.name(),
+                entry.sys_id(),
+                entry.comp_id(),
+                entry.color(),
+                &entry.parsed_fields(),
+            ),
             None => vec![Line::from(Span::styled(
                 "No messages",
                 Style::default().fg(Color::DarkGray),
@@ -319,9 +268,48 @@ impl App {
     }
 }
 
-fn panel_block(label: &str, count: usize, auto_scroll: bool, active: bool) -> Block<'_> {
+fn build_panel<'a, E: Entry>(
+    entries: &'a [E],
+    scroll: &ScrollState,
+    vh: usize,
+    label: &str,
+    count_suffix: &str,
+    active: bool,
+) -> (Paragraph<'a>, ScrollbarState) {
+    let total = entries.len();
+    let selected_style = Style::default().bg(Color::DarkGray);
+
+    let lines: Vec<Line> = entries
+        .iter()
+        .enumerate()
+        .skip(scroll.offset)
+        .take(vh)
+        .map(|(i, entry)| {
+            let line = entry.to_line();
+            if active && i == scroll.selected {
+                line.style(selected_style)
+            } else {
+                line
+            }
+        })
+        .collect();
+
+    let count_label = if count_suffix.is_empty() {
+        format!("{total}")
+    } else {
+        format!("{total} {count_suffix}")
+    };
+    let block = panel_block(label, &count_label, scroll.auto_scroll, active);
+
+    let paragraph = Paragraph::new(lines).block(block);
+    let scrollbar_state = ScrollbarState::new(total.saturating_sub(vh)).position(scroll.offset);
+
+    (paragraph, scrollbar_state)
+}
+
+fn panel_block(label: &str, count_label: &str, auto_scroll: bool, active: bool) -> Block<'static> {
     let title = format!(
-        " {label} [{count}] {} ",
+        " {label} [{count_label}] {} ",
         if auto_scroll { "[AUTO]" } else { "" }
     );
     let border_style = if active {
@@ -340,7 +328,7 @@ fn message_lines(
     sys_id: u8,
     comp_id: u8,
     color: Color,
-    fields: Vec<(&str, &str)>,
+    fields: &[(&str, &str)],
 ) -> Vec<Line<'static>> {
     let colored = Style::default().fg(color);
     let label = Style::default().fg(Color::Gray);
@@ -385,7 +373,7 @@ mod tests {
                 sequence: 0,
             };
             let msg = MavMessage::HEARTBEAT(mavlink::common::HEARTBEAT_DATA::default());
-            app.push(MavMsg::new(header, msg));
+            app.collector.push(MavMsg::new(header, msg));
         }
         app
     }
