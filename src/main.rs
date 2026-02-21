@@ -1,4 +1,5 @@
 mod app;
+mod collector;
 mod connection;
 mod message;
 

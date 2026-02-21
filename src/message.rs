@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use mavlink::common::MavMessage;
 use mavlink::{MavHeader, Message};
 use ratatui::style::Color;
@@ -14,11 +16,16 @@ const COLORS: &[Color] = &[
 pub struct MavMsg {
     pub header: MavHeader,
     pub msg: MavMessage,
+    pub timestamp: Instant,
 }
 
 impl MavMsg {
     pub fn new(header: MavHeader, msg: MavMessage) -> Self {
-        Self { header, msg }
+        Self {
+            header,
+            msg,
+            timestamp: Instant::now(),
+        }
     }
 
     pub fn color(&self) -> Color {

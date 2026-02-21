@@ -1,4 +1,5 @@
-use std::{collections::HashMap, io, sync::mpsc};
+use std::io;
+use std::sync::mpsc;
 
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use ratatui::{
@@ -9,123 +10,8 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
 };
 
+use crate::collector::Collector;
 use crate::message::MavMsg;
-
-struct TelemetryEntry {
-    color: Color,
-    text: String,
-    count: usize,
-}
-
-struct TelemetryPanel {
-    entries: HashMap<String, TelemetryEntry>,
-    scroll: usize,
-    auto_scroll: bool,
-}
-
-impl TelemetryPanel {
-    fn new() -> Self {
-        Self {
-            entries: HashMap::new(),
-            scroll: 0,
-            auto_scroll: true,
-        }
-    }
-
-    fn push(&mut self, msg_type: String, color: Color, text: String) {
-        let entry = self.entries.entry(msg_type).or_insert(TelemetryEntry {
-            color,
-            text: String::new(),
-            count: 0,
-        });
-        entry.color = color;
-        entry.text = text;
-        entry.count += 1;
-    }
-
-    fn sorted_entries(&self) -> Vec<(&str, &TelemetryEntry)> {
-        let mut entries: Vec<_> = self.entries.iter().map(|(k, v)| (k.as_str(), v)).collect();
-        entries.sort_by(|a, b| b.1.count.cmp(&a.1.count));
-        entries
-    }
-
-    fn len(&self) -> usize {
-        self.entries.len()
-    }
-
-    fn scroll_up(&mut self, amount: usize) {
-        self.auto_scroll = false;
-        self.scroll = self.scroll.saturating_sub(amount);
-    }
-
-    fn scroll_down(&mut self, amount: usize, visible_height: usize) {
-        self.scroll = self
-            .scroll
-            .saturating_add(amount)
-            .min(self.len().saturating_sub(visible_height));
-        if self.scroll >= self.len().saturating_sub(visible_height) {
-            self.auto_scroll = true;
-        }
-    }
-
-    fn scroll_to_top(&mut self) {
-        self.auto_scroll = false;
-        self.scroll = 0;
-    }
-
-    fn scroll_to_bottom(&mut self, visible_height: usize) {
-        self.auto_scroll = true;
-        self.scroll = self.len().saturating_sub(visible_height);
-    }
-}
-
-struct CommandPanel {
-    messages: Vec<(Color, String)>,
-    scroll: usize,
-    auto_scroll: bool,
-}
-
-impl CommandPanel {
-    fn new() -> Self {
-        Self {
-            messages: Vec::new(),
-            scroll: 0,
-            auto_scroll: true,
-        }
-    }
-
-    fn push(&mut self, color: Color, text: String) {
-        self.messages.push((color, text));
-        if self.auto_scroll {
-            self.scroll = self.messages.len().saturating_sub(1);
-        }
-    }
-
-    fn scroll_up(&mut self, amount: usize) {
-        self.auto_scroll = false;
-        self.scroll = self.scroll.saturating_sub(amount);
-    }
-
-    fn scroll_down(&mut self, amount: usize, visible_height: usize) {
-        self.scroll = self
-            .scroll
-            .saturating_add(amount)
-            .min(self.messages.len().saturating_sub(visible_height));
-        if self.scroll >= self.messages.len().saturating_sub(visible_height) {
-            self.auto_scroll = true;
-        }
-    }
-
-    fn scroll_to_top(&mut self) {
-        self.auto_scroll = false;
-        self.scroll = 0;
-    }
-
-    fn scroll_to_bottom(&mut self, visible_height: usize) {
-        self.auto_scroll = true;
-        self.scroll = self.messages.len().saturating_sub(visible_height);
-    }
-}
 
 #[derive(PartialEq)]
 enum Panel {
@@ -133,30 +19,70 @@ enum Panel {
     Commands,
 }
 
+struct ScrollState {
+    offset: usize,
+    auto_scroll: bool,
+}
+
+impl ScrollState {
+    fn new() -> Self {
+        Self {
+            offset: 0,
+            auto_scroll: true,
+        }
+    }
+
+    fn scroll_up(&mut self, amount: usize) {
+        self.auto_scroll = false;
+        self.offset = self.offset.saturating_sub(amount);
+    }
+
+    fn scroll_down(&mut self, amount: usize, total: usize, visible: usize) {
+        self.offset = self
+            .offset
+            .saturating_add(amount)
+            .min(total.saturating_sub(visible));
+        if self.offset >= total.saturating_sub(visible) {
+            self.auto_scroll = true;
+        }
+    }
+
+    fn scroll_to_top(&mut self) {
+        self.auto_scroll = false;
+        self.offset = 0;
+    }
+
+    fn scroll_to_bottom(&mut self, total: usize, visible: usize) {
+        self.auto_scroll = true;
+        self.offset = total.saturating_sub(visible);
+    }
+
+    fn auto_follow(&mut self, total: usize, visible: usize) {
+        if self.auto_scroll {
+            self.offset = total.saturating_sub(visible);
+        }
+    }
+}
+
 pub struct App {
-    telemetry: TelemetryPanel,
-    commands: CommandPanel,
+    collector: Collector,
+    telemetry_scroll: ScrollState,
+    commands_scroll: ScrollState,
     active_panel: Panel,
 }
 
 impl App {
     pub fn new() -> Self {
         Self {
-            telemetry: TelemetryPanel::new(),
-            commands: CommandPanel::new(),
+            collector: Collector::new(),
+            telemetry_scroll: ScrollState::new(),
+            commands_scroll: ScrollState::new(),
             active_panel: Panel::Telemetry,
         }
     }
 
     pub fn push(&mut self, msg: MavMsg) {
-        let color = msg.color();
-        let text = msg.text();
-        if msg.is_command() {
-            self.commands.push(color, text);
-        } else {
-            self.telemetry
-                .push(msg.msg_type().to_string(), color, text);
-        }
+        self.collector.push(msg);
     }
 
     fn toggle_panel(&mut self) {
@@ -175,7 +101,7 @@ pub fn run(terminal: &mut DefaultTerminal, rx: mpsc::Receiver<MavMsg>) -> io::Re
             app.push(msg);
         }
 
-        terminal.draw(|frame| draw(frame, &app))?;
+        terminal.draw(|frame| draw(frame, &mut app))?;
 
         if event::poll(std::time::Duration::from_millis(50))? {
             if let Event::Key(key) = event::read()? {
@@ -187,28 +113,50 @@ pub fn run(terminal: &mut DefaultTerminal, rx: mpsc::Receiver<MavMsg>) -> io::Re
                             app.toggle_panel()
                         }
                         KeyCode::Up | KeyCode::Char('k') => match app.active_panel {
-                            Panel::Telemetry => app.telemetry.scroll_up(1),
-                            Panel::Commands => app.commands.scroll_up(1),
+                            Panel::Telemetry => app.telemetry_scroll.scroll_up(1),
+                            Panel::Commands => app.commands_scroll.scroll_up(1),
                         },
                         KeyCode::Down | KeyCode::Char('j') => match app.active_panel {
-                            Panel::Telemetry => app.telemetry.scroll_down(1, h),
-                            Panel::Commands => app.commands.scroll_down(1, h),
+                            Panel::Telemetry => app.telemetry_scroll.scroll_down(
+                                1,
+                                app.collector.telemetry_count(),
+                                h,
+                            ),
+                            Panel::Commands => app.commands_scroll.scroll_down(
+                                1,
+                                app.collector.commands().len(),
+                                h,
+                            ),
                         },
                         KeyCode::PageUp => match app.active_panel {
-                            Panel::Telemetry => app.telemetry.scroll_up(h),
-                            Panel::Commands => app.commands.scroll_up(h),
+                            Panel::Telemetry => app.telemetry_scroll.scroll_up(h),
+                            Panel::Commands => app.commands_scroll.scroll_up(h),
                         },
                         KeyCode::PageDown => match app.active_panel {
-                            Panel::Telemetry => app.telemetry.scroll_down(h, h),
-                            Panel::Commands => app.commands.scroll_down(h, h),
+                            Panel::Telemetry => app.telemetry_scroll.scroll_down(
+                                h,
+                                app.collector.telemetry_count(),
+                                h,
+                            ),
+                            Panel::Commands => app.commands_scroll.scroll_down(
+                                h,
+                                app.collector.commands().len(),
+                                h,
+                            ),
                         },
                         KeyCode::Char('g') => match app.active_panel {
-                            Panel::Telemetry => app.telemetry.scroll_to_top(),
-                            Panel::Commands => app.commands.scroll_to_top(),
+                            Panel::Telemetry => app.telemetry_scroll.scroll_to_top(),
+                            Panel::Commands => app.commands_scroll.scroll_to_top(),
                         },
                         KeyCode::Char('G') => match app.active_panel {
-                            Panel::Telemetry => app.telemetry.scroll_to_bottom(h),
-                            Panel::Commands => app.commands.scroll_to_bottom(h),
+                            Panel::Telemetry => app.telemetry_scroll.scroll_to_bottom(
+                                app.collector.telemetry_count(),
+                                h,
+                            ),
+                            Panel::Commands => app.commands_scroll.scroll_to_bottom(
+                                app.collector.commands().len(),
+                                h,
+                            ),
                         },
                         _ => {}
                     }
@@ -218,31 +166,42 @@ pub fn run(terminal: &mut DefaultTerminal, rx: mpsc::Receiver<MavMsg>) -> io::Re
     }
 }
 
-fn draw(frame: &mut Frame, app: &App) {
+fn draw(frame: &mut Frame, app: &mut App) {
     let chunks = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
         .split(frame.area());
 
     draw_telemetry(
         frame,
-        &app.telemetry,
+        &app.collector,
+        &mut app.telemetry_scroll,
         chunks[0],
         app.active_panel == Panel::Telemetry,
     );
     draw_commands(
         frame,
-        &app.commands,
+        &app.collector,
+        &mut app.commands_scroll,
         chunks[1],
         app.active_panel == Panel::Commands,
     );
 }
 
-fn draw_telemetry(frame: &mut Frame, panel: &TelemetryPanel, area: Rect, active: bool) {
+fn draw_telemetry(
+    frame: &mut Frame,
+    collector: &Collector,
+    scroll: &mut ScrollState,
+    area: Rect,
+    active: bool,
+) {
     let vh = area.height.saturating_sub(2) as usize;
-    let sorted = panel.sorted_entries();
+    let sorted = collector.telemetry_sorted();
+    let total = sorted.len();
+
+    scroll.auto_follow(total, vh);
 
     let lines: Vec<Line> = sorted
         .iter()
-        .skip(panel.scroll)
+        .skip(scroll.offset)
         .take(vh)
         .map(|(_, entry)| {
             Line::from(Span::styled(
@@ -254,8 +213,8 @@ fn draw_telemetry(frame: &mut Frame, panel: &TelemetryPanel, area: Rect, active:
 
     let title = format!(
         " Telemetry [{} types] {} ",
-        panel.len(),
-        if panel.auto_scroll { "[AUTO]" } else { "" }
+        total,
+        if scroll.auto_scroll { "[AUTO]" } else { "" }
     );
 
     let border_style = if active {
@@ -273,7 +232,7 @@ fn draw_telemetry(frame: &mut Frame, panel: &TelemetryPanel, area: Rect, active:
     frame.render_widget(paragraph, area);
 
     let mut scrollbar_state =
-        ScrollbarState::new(panel.len().saturating_sub(vh)).position(panel.scroll);
+        ScrollbarState::new(total.saturating_sub(vh)).position(scroll.offset);
     frame.render_stateful_widget(
         Scrollbar::new(ScrollbarOrientation::VerticalRight),
         area,
@@ -281,22 +240,36 @@ fn draw_telemetry(frame: &mut Frame, panel: &TelemetryPanel, area: Rect, active:
     );
 }
 
-fn draw_commands(frame: &mut Frame, panel: &CommandPanel, area: Rect, active: bool) {
+fn draw_commands(
+    frame: &mut Frame,
+    collector: &Collector,
+    scroll: &mut ScrollState,
+    area: Rect,
+    active: bool,
+) {
     let vh = area.height.saturating_sub(2) as usize;
+    let commands = collector.commands();
+    let total = commands.len();
 
-    let lines: Vec<Line> = panel
-        .messages
+    scroll.auto_follow(total, vh);
+
+    let lines: Vec<Line> = commands
         .iter()
-        .skip(panel.scroll)
+        .skip(scroll.offset)
         .take(vh)
-        .map(|(color, text)| Line::from(Span::styled(text.as_str(), Style::default().fg(*color))))
+        .map(|entry| {
+            Line::from(Span::styled(
+                entry.text.as_str(),
+                Style::default().fg(entry.color),
+            ))
+        })
         .collect();
 
     let title = format!(
         " Commands [{}/{}] {} ",
-        panel.scroll + 1,
-        panel.messages.len(),
-        if panel.auto_scroll { "[AUTO]" } else { "" }
+        scroll.offset + 1,
+        total,
+        if scroll.auto_scroll { "[AUTO]" } else { "" }
     );
 
     let border_style = if active {
@@ -314,7 +287,7 @@ fn draw_commands(frame: &mut Frame, panel: &CommandPanel, area: Rect, active: bo
     frame.render_widget(paragraph, area);
 
     let mut scrollbar_state =
-        ScrollbarState::new(panel.messages.len().saturating_sub(vh)).position(panel.scroll);
+        ScrollbarState::new(total.saturating_sub(vh)).position(scroll.offset);
     frame.render_stateful_widget(
         Scrollbar::new(ScrollbarOrientation::VerticalRight),
         area,
