@@ -16,6 +16,10 @@ A terminal UI for inspecting [MAVLink](https://mavlink.io/en/) traffic in real t
 - `Ctrl+O` opens the MAVLink docs for the selected message
 - MAVLink v2, any connection URI supported by the `mavlink` crate (`udpin:`, `tcpin:`, `serial:`, etc.)
 
+# Install
+
+Check [Releases](https://github.com/kloki/mavsnark/releases) for binaries and installers
+
 ## Usage
 
 ```
