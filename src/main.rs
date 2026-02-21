@@ -1,6 +1,13 @@
+mod app;
+mod connection;
+
+use std::io;
+use std::sync::mpsc;
+use std::thread;
+
 use clap::Parser;
-use colored::Colorize;
-use mavlink::{MavConnection, common::MavMessage};
+use mavlink::Message;
+use mavlink::common::MavMessage;
 
 #[derive(Parser)]
 #[command(name = "mavsnark", about = "wireshark for mavlink")]
@@ -10,43 +17,84 @@ struct Args {
     uri: String,
 }
 
-const COLORS: &[&str] = &["red", "green", "yellow", "blue", "magenta", "cyan"];
-
-fn color_for(system_id: u8, component_id: u8) -> &'static str {
-    let idx = (system_id as usize * 31 + component_id as usize) % COLORS.len();
-    COLORS[idx]
+#[allow(deprecated)]
+fn is_command(msg: &MavMessage) -> bool {
+    matches!(
+        msg,
+        // Command protocol
+        MavMessage::COMMAND_INT(..)
+            | MavMessage::COMMAND_LONG(..)
+            | MavMessage::COMMAND_ACK(..)
+            | MavMessage::COMMAND_CANCEL(..)
+            // Mission protocol
+            | MavMessage::MISSION_ITEM(..)
+            | MavMessage::MISSION_ITEM_INT(..)
+            | MavMessage::MISSION_REQUEST(..)
+            | MavMessage::MISSION_REQUEST_INT(..)
+            | MavMessage::MISSION_REQUEST_LIST(..)
+            | MavMessage::MISSION_REQUEST_PARTIAL_LIST(..)
+            | MavMessage::MISSION_SET_CURRENT(..)
+            | MavMessage::MISSION_WRITE_PARTIAL_LIST(..)
+            | MavMessage::MISSION_COUNT(..)
+            | MavMessage::MISSION_CLEAR_ALL(..)
+            | MavMessage::MISSION_ACK(..)
+            // SET_* messages
+            | MavMessage::SET_MODE(..)
+            | MavMessage::SET_ATTITUDE_TARGET(..)
+            | MavMessage::SET_POSITION_TARGET_LOCAL_NED(..)
+            | MavMessage::SET_POSITION_TARGET_GLOBAL_INT(..)
+            | MavMessage::SET_ACTUATOR_CONTROL_TARGET(..)
+            | MavMessage::SET_GPS_GLOBAL_ORIGIN(..)
+            | MavMessage::SET_HOME_POSITION(..)
+            // Manual control
+            | MavMessage::MANUAL_CONTROL(..)
+            | MavMessage::MANUAL_SETPOINT(..)
+            | MavMessage::RC_CHANNELS_OVERRIDE(..)
+            // Param set
+            | MavMessage::PARAM_SET(..)
+            | MavMessage::PARAM_EXT_SET(..)
+            // Safety
+            | MavMessage::SAFETY_SET_ALLOWED_AREA(..)
+            // Gimbal set
+            | MavMessage::GIMBAL_DEVICE_SET_ATTITUDE(..)
+            | MavMessage::GIMBAL_MANAGER_SET_ATTITUDE(..)
+            | MavMessage::GIMBAL_MANAGER_SET_MANUAL_CONTROL(..)
+            | MavMessage::GIMBAL_MANAGER_SET_PITCHYAW(..)
+    )
 }
 
-fn main() {
+fn main() -> io::Result<()> {
     let args = Args::parse();
 
-    let mut connection = mavlink::connect::<MavMessage>(&args.uri)
-        .unwrap_or_else(|e| panic!("failed to connect to {}: {e}", args.uri));
+    let (tx, rx) = mpsc::channel();
 
-    connection.set_protocol_version(mavlink::MavlinkVersion::V2);
-
-    loop {
-        match connection.recv() {
-            Ok((header, msg)) => {
-                if header.system_id == 1 {
-                    continue;
+    thread::spawn(move || {
+        let connection = connection::connect(&args.uri);
+        loop {
+            match connection.recv() {
+                Ok((header, msg)) => {
+                    let color = app::color_for(header.system_id, header.component_id);
+                    let text = format!(
+                        "[SYS:{} COMP:{}] {:?}",
+                        header.system_id, header.component_id, msg
+                    );
+                    let message = app::Message {
+                        color,
+                        msg_type: msg.message_name().to_string(),
+                        is_command: is_command(&msg),
+                        text,
+                    };
+                    if tx.send(message).is_err() {
+                        break;
+                    }
                 }
-                let label = format!("[SYS:{} COMP:{}]", header.system_id, header.component_id);
-                let line = format!("{label} {msg:?}");
-                let colored = match color_for(header.system_id, header.component_id) {
-                    "red" => line.red(),
-                    "green" => line.green(),
-                    "yellow" => line.yellow(),
-                    "blue" => line.blue(),
-                    "magenta" => line.magenta(),
-                    "cyan" => line.cyan(),
-                    _ => line.white(),
-                };
-                println!("{colored}");
-            }
-            Err(e) => {
-                eprintln!("recv error: {e}");
+                Err(_) => {}
             }
         }
-    }
+    });
+
+    let mut terminal = ratatui::init();
+    let result = app::run(&mut terminal, rx);
+    ratatui::restore();
+    result
 }
