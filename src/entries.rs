@@ -17,15 +17,6 @@ pub(crate) fn parse_fields(s: &str) -> Vec<(&str, &str)> {
         .collect()
 }
 
-pub(crate) trait Entry {
-    fn name(&self) -> &'static str;
-    fn sys_id(&self) -> u8;
-    fn comp_id(&self) -> u8;
-    fn color(&self) -> Color;
-    fn parsed_fields(&self) -> Vec<(&str, &str)>;
-    fn to_line(&self) -> Line<'_>;
-}
-
 pub struct StreamEntry {
     pub color: Color,
     pub msg_color: Option<Color>,
@@ -36,23 +27,12 @@ pub struct StreamEntry {
     pub timestamp: DateTime<Utc>,
 }
 
-impl Entry for StreamEntry {
-    fn name(&self) -> &'static str {
-        self.name
-    }
-    fn sys_id(&self) -> u8 {
-        self.sys_id
-    }
-    fn comp_id(&self) -> u8 {
-        self.comp_id
-    }
-    fn color(&self) -> Color {
-        self.color
-    }
-    fn parsed_fields(&self) -> Vec<(&str, &str)> {
+impl StreamEntry {
+    pub fn parsed_fields(&self) -> Vec<(&str, &str)> {
         parse_fields(&self.fields)
     }
-    fn to_line(&self) -> Line<'_> {
+
+    pub fn to_line(&self) -> Line<'_> {
         let colored = Style::default().fg(self.color);
         let ago = Utc::now()
             .signed_duration_since(self.timestamp)
@@ -84,23 +64,12 @@ pub struct EventEntry {
     pub fields: String,
 }
 
-impl Entry for EventEntry {
-    fn name(&self) -> &'static str {
-        self.name
-    }
-    fn sys_id(&self) -> u8 {
-        self.sys_id
-    }
-    fn comp_id(&self) -> u8 {
-        self.comp_id
-    }
-    fn color(&self) -> Color {
-        self.color
-    }
-    fn parsed_fields(&self) -> Vec<(&str, &str)> {
+impl EventEntry {
+    pub fn parsed_fields(&self) -> Vec<(&str, &str)> {
         parse_fields(&self.fields)
     }
-    fn to_line(&self) -> Line<'_> {
+
+    pub fn to_line(&self) -> Line<'_> {
         let colored = Style::default().fg(self.color);
         let msg_style = match self.msg_color {
             Some(c) => Style::default().fg(c),
