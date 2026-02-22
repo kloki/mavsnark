@@ -1,6 +1,9 @@
-use std::{io, sync::LazyLock, sync::mpsc};
+use std::{
+    io,
+    sync::{LazyLock, mpsc},
+};
 
-use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::{
     DefaultTerminal, Frame,
     layout::{Constraint, Layout},
@@ -9,7 +12,7 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
 };
 
-use crate::{collector::Collector, message::MavMsg, scroll::ScrollState};
+use crate::{AppEvent, collector::Collector, scroll::ScrollState};
 
 #[derive(Debug, PartialEq)]
 enum Panel {
@@ -150,22 +153,38 @@ impl App {
     pub fn run(
         &mut self,
         terminal: &mut DefaultTerminal,
-        rx: mpsc::Receiver<MavMsg>,
+        rx: mpsc::Receiver<AppEvent>,
     ) -> io::Result<()> {
+        let timeout = std::time::Duration::from_millis(200);
         loop {
-            while let Ok(msg) = rx.try_recv() {
-                self.collector.push(msg);
+            let first = rx.recv_timeout(timeout);
+            match first {
+                Ok(AppEvent::Mav(msg)) => self.collector.push(*msg),
+                Ok(AppEvent::Terminal(crossterm::event::Event::Key(key))) => {
+                    if key.kind == KeyEventKind::Press && self.handle_key(key.code, key.modifiers) {
+                        return Ok(());
+                    }
+                }
+                Ok(_) | Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(mpsc::RecvTimeoutError::Disconnected) => return Ok(()),
+            }
+
+            // Drain remaining queued events
+            while let Ok(event) = rx.try_recv() {
+                match event {
+                    AppEvent::Mav(msg) => self.collector.push(*msg),
+                    AppEvent::Terminal(crossterm::event::Event::Key(key)) => {
+                        if key.kind == KeyEventKind::Press
+                            && self.handle_key(key.code, key.modifiers)
+                        {
+                            return Ok(());
+                        }
+                    }
+                    _ => {}
+                }
             }
 
             terminal.draw(|frame| self.draw(frame))?;
-
-            if event::poll(std::time::Duration::from_millis(50))?
-                && let Event::Key(key) = event::read()?
-                && key.kind == KeyEventKind::Press
-                && self.handle_key(key.code, key.modifiers)
-            {
-                return Ok(());
-            }
         }
     }
 
@@ -276,13 +295,7 @@ impl App {
             })
             .collect();
 
-        let block = panel_block(
-            "Events",
-            total,
-            "",
-            self.events_scroll.auto_scroll,
-            active,
-        );
+        let block = panel_block("Events", total, "", self.events_scroll.auto_scroll, active);
 
         let paragraph = Paragraph::new(lines).block(block);
         let scrollbar_state =

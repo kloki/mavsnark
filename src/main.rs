@@ -8,7 +8,13 @@ mod scroll;
 use std::{io, sync::mpsc, thread};
 
 use clap::Parser;
+use crossterm::event::{self, Event};
 use message::MavMsg;
+
+pub enum AppEvent {
+    Mav(Box<MavMsg>),
+    Terminal(Event),
+}
 
 #[derive(Parser)]
 #[command(name = "mavsnark", about = "wireshark for mavlink")]
@@ -28,12 +34,15 @@ fn main() -> io::Result<()> {
         e
     })?;
 
+    let mav_tx = tx.clone();
     thread::spawn(move || {
         loop {
             match connection.recv() {
                 Ok((header, msg)) => {
-                    if tx.send(MavMsg::new(header, msg)).is_err() {
-                        eprintln!("receiver dropped, stopping read thread");
+                    if mav_tx
+                        .send(AppEvent::Mav(Box::new(MavMsg::new(header, msg))))
+                        .is_err()
+                    {
                         break;
                     }
                 }
@@ -41,6 +50,14 @@ fn main() -> io::Result<()> {
                     eprintln!("mavlink recv error: {e}");
                     break;
                 }
+            }
+        }
+    });
+
+    thread::spawn(move || {
+        while let Ok(ev) = event::read() {
+            if tx.send(AppEvent::Terminal(ev)).is_err() {
+                break;
             }
         }
     });
