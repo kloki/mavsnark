@@ -55,7 +55,7 @@ impl StreamEntry {
     }
 }
 
-pub struct EventEntry {
+pub struct MessageEntry {
     pub color: Color,
     pub msg_color: Option<Color>,
     pub sys_id: u8,
@@ -64,7 +64,7 @@ pub struct EventEntry {
     pub fields: String,
 }
 
-impl EventEntry {
+impl MessageEntry {
     pub fn parsed_fields(&self) -> Vec<(&str, &str)> {
         parse_fields(&self.fields)
     }
@@ -130,8 +130,8 @@ mod tests {
     }
 
     #[test]
-    fn parsed_fields_on_event_entry() {
-        let entry = EventEntry {
+    fn parsed_fields_on_message_entry() {
+        let entry = MessageEntry {
             color: Color::Red,
             msg_color: None,
             sys_id: 1,

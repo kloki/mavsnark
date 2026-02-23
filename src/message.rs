@@ -53,7 +53,7 @@ impl MavMsg {
     }
 
     #[allow(deprecated)]
-    pub fn is_event(&self) -> bool {
+    pub fn is_message(&self) -> bool {
         matches!(
             self.msg,
             // Command protocol
@@ -103,33 +103,33 @@ mod tests {
     }
 
     #[test]
-    fn heartbeat_is_not_event() {
+    fn heartbeat_is_not_message() {
         let m = make(
             MavMessage::HEARTBEAT(mavlink::common::HEARTBEAT_DATA::default()),
             1,
             1,
         );
-        assert!(!m.is_event());
+        assert!(!m.is_message());
     }
 
     #[test]
-    fn command_long_is_event() {
+    fn command_long_is_message() {
         let m = make(
             MavMessage::COMMAND_LONG(mavlink::common::COMMAND_LONG_DATA::default()),
             1,
             1,
         );
-        assert!(m.is_event());
+        assert!(m.is_message());
     }
 
     #[test]
-    fn mission_item_int_is_event() {
+    fn mission_item_int_is_message() {
         let m = make(
             MavMessage::MISSION_ITEM_INT(mavlink::common::MISSION_ITEM_INT_DATA::default()),
             1,
             1,
         );
-        assert!(m.is_event());
+        assert!(m.is_message());
     }
 
     #[test]

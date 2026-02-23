@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    entries::{EventEntry, StreamEntry},
+    entries::{MessageEntry, StreamEntry},
     message::MavMsg,
 };
 
@@ -10,7 +10,7 @@ type StreamKey = (u8, u8, &'static str);
 pub struct Collector {
     stream: Vec<StreamEntry>,
     stream_index: HashMap<StreamKey, usize>,
-    events: Vec<EventEntry>,
+    messages: Vec<MessageEntry>,
 }
 
 impl Collector {
@@ -18,7 +18,7 @@ impl Collector {
         Self {
             stream: Vec::new(),
             stream_index: HashMap::new(),
-            events: Vec::new(),
+            messages: Vec::new(),
         }
     }
 
@@ -31,8 +31,8 @@ impl Collector {
         let fields = msg.fields();
         let timestamp = msg.timestamp;
 
-        if msg.is_event() {
-            self.events.push(EventEntry {
+        if msg.is_message() {
+            self.messages.push(MessageEntry {
                 color,
                 msg_color,
                 sys_id,
@@ -68,8 +68,8 @@ impl Collector {
         &self.stream
     }
 
-    pub fn events(&self) -> &[EventEntry] {
-        &self.events
+    pub fn messages(&self) -> &[MessageEntry] {
+        &self.messages
     }
 }
 
@@ -96,7 +96,7 @@ mod tests {
     fn new_collector_is_empty() {
         let c = Collector::new();
         assert!(c.stream().is_empty());
-        assert!(c.events().is_empty());
+        assert!(c.messages().is_empty());
     }
 
     #[test]
@@ -109,11 +109,11 @@ mod tests {
         );
         c.push(msg);
         assert_eq!(c.stream().len(), 1);
-        assert!(c.events().is_empty());
+        assert!(c.messages().is_empty());
     }
 
     #[test]
-    fn push_event_message() {
+    fn push_discrete_message() {
         let mut c = Collector::new();
         let msg = make_msg(
             MavMessage::COMMAND_LONG(mavlink::common::COMMAND_LONG_DATA::default()),
@@ -122,7 +122,7 @@ mod tests {
         );
         c.push(msg);
         assert!(c.stream().is_empty());
-        assert_eq!(c.events().len(), 1);
+        assert_eq!(c.messages().len(), 1);
     }
 
     #[test]
@@ -162,7 +162,7 @@ mod tests {
     }
 
     #[test]
-    fn mixed_stream_and_events() {
+    fn mixed_stream_and_messages() {
         let mut c = Collector::new();
         c.push(make_msg(
             MavMessage::HEARTBEAT(mavlink::common::HEARTBEAT_DATA::default()),
@@ -185,6 +185,6 @@ mod tests {
             1,
         ));
         assert_eq!(c.stream().len(), 2);
-        assert_eq!(c.events().len(), 2);
+        assert_eq!(c.messages().len(), 2);
     }
 }

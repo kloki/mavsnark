@@ -17,7 +17,7 @@ use crate::{AppEvent, collector::Collector, scroll::ScrollState};
 #[derive(Debug, PartialEq)]
 enum Panel {
     Stream,
-    Events,
+    Messages,
 }
 
 static HEADER: LazyLock<Paragraph<'static>> = LazyLock::new(|| {
@@ -59,10 +59,10 @@ static FOOTER: LazyLock<Paragraph<'static>> = LazyLock::new(|| {
 pub struct App {
     collector: Collector,
     stream_scroll: ScrollState,
-    events_scroll: ScrollState,
+    messages_scroll: ScrollState,
     active_panel: Panel,
     stream_vh: usize,
-    events_vh: usize,
+    messages_vh: usize,
 }
 
 impl App {
@@ -70,24 +70,24 @@ impl App {
         Self {
             collector: Collector::new(),
             stream_scroll: ScrollState::new(),
-            events_scroll: ScrollState::new(),
-            active_panel: Panel::Events,
+            messages_scroll: ScrollState::new(),
+            active_panel: Panel::Messages,
             stream_vh: 0,
-            events_vh: 0,
+            messages_vh: 0,
         }
     }
 
     fn toggle_panel(&mut self) {
         self.active_panel = match self.active_panel {
-            Panel::Stream => Panel::Events,
-            Panel::Events => Panel::Stream,
+            Panel::Stream => Panel::Messages,
+            Panel::Messages => Panel::Stream,
         };
     }
 
     fn active_scroll(&mut self) -> &mut ScrollState {
         match self.active_panel {
             Panel::Stream => &mut self.stream_scroll,
-            Panel::Events => &mut self.events_scroll,
+            Panel::Messages => &mut self.messages_scroll,
         }
     }
 
@@ -97,9 +97,9 @@ impl App {
                 let stream = self.collector.stream();
                 stream.get(self.stream_scroll.selected).map(|e| e.name)
             }
-            Panel::Events => {
-                let events = self.collector.events();
-                events.get(self.events_scroll.selected).map(|e| e.name)
+            Panel::Messages => {
+                let messages = self.collector.messages();
+                messages.get(self.messages_scroll.selected).map(|e| e.name)
             }
         }
     }
@@ -114,14 +114,14 @@ impl App {
     fn active_total(&self) -> usize {
         match self.active_panel {
             Panel::Stream => self.collector.stream().len(),
-            Panel::Events => self.collector.events().len(),
+            Panel::Messages => self.collector.messages().len(),
         }
     }
 
     fn active_vh(&self) -> usize {
         match self.active_panel {
             Panel::Stream => self.stream_vh,
-            Panel::Events => self.events_vh,
+            Panel::Messages => self.messages_vh,
         }
     }
 
@@ -204,21 +204,21 @@ impl App {
         let right_rows = Layout::vertical([Constraint::Percentage(60), Constraint::Percentage(40)])
             .split(columns[1]);
 
-        self.events_vh = columns[0].height.saturating_sub(2) as usize;
+        self.messages_vh = columns[0].height.saturating_sub(2) as usize;
         self.stream_vh = right_rows[0].height.saturating_sub(2) as usize;
 
         // Auto-follow before drawing
         let stream_total = self.collector.stream().len();
         self.stream_scroll.auto_follow(stream_total, self.stream_vh);
-        let events_total = self.collector.events().len();
-        self.events_scroll.auto_follow(events_total, self.events_vh);
+        let messages_total = self.collector.messages().len();
+        self.messages_scroll.auto_follow(messages_total, self.messages_vh);
 
-        let (events_widget, mut events_sb) = self.build_events();
-        frame.render_widget(events_widget, columns[0]);
+        let (messages_widget, mut messages_sb) = self.build_messages();
+        frame.render_widget(messages_widget, columns[0]);
         frame.render_stateful_widget(
             Scrollbar::new(ScrollbarOrientation::VerticalRight),
             columns[0],
-            &mut events_sb,
+            &mut messages_sb,
         );
 
         let (stream_widget, mut stream_sb) = self.build_stream();
@@ -272,22 +272,22 @@ impl App {
         (paragraph, scrollbar_state)
     }
 
-    fn build_events(&self) -> (Paragraph<'_>, ScrollbarState) {
-        let active = self.active_panel == Panel::Events;
-        let vh = self.events_vh;
-        let events = self.collector.events();
-        let total = events.len();
+    fn build_messages(&self) -> (Paragraph<'_>, ScrollbarState) {
+        let active = self.active_panel == Panel::Messages;
+        let vh = self.messages_vh;
+        let messages = self.collector.messages();
+        let total = messages.len();
 
         let selected_style = Style::default().bg(Color::DarkGray);
 
-        let lines: Vec<Line> = events
+        let lines: Vec<Line> = messages
             .iter()
             .enumerate()
-            .skip(self.events_scroll.offset)
+            .skip(self.messages_scroll.offset)
             .take(vh)
             .map(|(i, entry)| {
                 let line = entry.to_line();
-                if active && i == self.events_scroll.selected {
+                if active && i == self.messages_scroll.selected {
                     line.style(selected_style)
                 } else {
                     line
@@ -295,11 +295,11 @@ impl App {
             })
             .collect();
 
-        let block = panel_block("Events", total, "", self.events_scroll.auto_scroll, active);
+        let block = panel_block("Messages", total, "", self.messages_scroll.auto_scroll, active);
 
         let paragraph = Paragraph::new(lines).block(block);
         let scrollbar_state =
-            ScrollbarState::new(total.saturating_sub(vh)).position(self.events_scroll.offset);
+            ScrollbarState::new(total.saturating_sub(vh)).position(self.messages_scroll.offset);
 
         (paragraph, scrollbar_state)
     }
@@ -316,9 +316,9 @@ impl App {
                 s.get(self.stream_scroll.selected.min(s.len().saturating_sub(1)))
                     .map(|e| (e.name, e.sys_id, e.comp_id, e.color, e.parsed_fields()))
             }
-            Panel::Events => {
-                let e = self.collector.events();
-                e.get(self.events_scroll.selected.min(e.len().saturating_sub(1)))
+            Panel::Messages => {
+                let m = self.collector.messages();
+                m.get(self.messages_scroll.selected.min(m.len().saturating_sub(1)))
                     .map(|e| (e.name, e.sys_id, e.comp_id, e.color, e.parsed_fields()))
             }
         };
@@ -408,7 +408,7 @@ mod tests {
         let mut app = App::new();
         app.active_panel = Panel::Stream;
         app.stream_vh = 10;
-        app.events_vh = 10;
+        app.messages_vh = 10;
         for i in 0..n {
             let header = MavHeader {
                 system_id: i as u8,
@@ -454,11 +454,11 @@ mod tests {
     #[test]
     fn tab_toggles_panel() {
         let mut app = App::new();
-        assert_eq!(app.active_panel, Panel::Events);
+        assert_eq!(app.active_panel, Panel::Messages);
         app.handle_key(KeyCode::Tab, KeyModifiers::NONE);
         assert_eq!(app.active_panel, Panel::Stream);
         app.handle_key(KeyCode::Tab, KeyModifiers::NONE);
-        assert_eq!(app.active_panel, Panel::Events);
+        assert_eq!(app.active_panel, Panel::Messages);
     }
 
     #[test]
