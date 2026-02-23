@@ -71,6 +71,12 @@ impl Collector {
     pub fn messages(&self) -> &[MessageEntry] {
         &self.messages
     }
+
+    pub fn clear(&mut self) {
+        self.stream.clear();
+        self.stream_index.clear();
+        self.messages.clear();
+    }
 }
 
 #[cfg(test)]

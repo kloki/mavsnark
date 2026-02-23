@@ -52,7 +52,9 @@ static FOOTER: LazyLock<Paragraph<'static>> = LazyLock::new(|| {
         Span::styled("g/G", key),
         Span::raw(" Top/Bottom  "),
         Span::styled("Ctrl+o", key),
-        Span::raw(" Docs "),
+        Span::raw(" Docs  "),
+        Span::styled("Ctrl+r", key),
+        Span::raw(" Clear "),
     ]))
 });
 
@@ -132,6 +134,11 @@ impl App {
         match (code, modifiers) {
             (KeyCode::Char('q'), _) | (KeyCode::Esc, _) => return true,
             (KeyCode::Char('o'), m) if m.contains(KeyModifiers::CONTROL) => self.open_docs(),
+            (KeyCode::Char('r'), m) if m.contains(KeyModifiers::CONTROL) => {
+                self.collector.clear();
+                self.stream_scroll = ScrollState::new();
+                self.messages_scroll = ScrollState::new();
+            }
             (KeyCode::Tab, _)
             | (KeyCode::Left, _)
             | (KeyCode::Right, _)
