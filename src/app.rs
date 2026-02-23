@@ -53,8 +53,8 @@ static FOOTER: LazyLock<Paragraph<'static>> = LazyLock::new(|| {
         Span::raw(" Top/Bottom  "),
         Span::styled("Ctrl+o", key),
         Span::raw(" Docs  "),
-        Span::styled("Ctrl+s", key),
-        Span::raw(" Toggle  "),
+        Span::styled("Ctrl+t", key),
+        Span::raw(" Move to Stream/Messages  "),
         Span::styled("Ctrl+r", key),
         Span::raw(" Clear "),
     ]))
@@ -141,7 +141,7 @@ impl App {
                 self.stream_scroll = ScrollState::new();
                 self.messages_scroll = ScrollState::new();
             }
-            (KeyCode::Char('s'), m) if m.contains(KeyModifiers::CONTROL) => {
+            (KeyCode::Char('t'), m) if m.contains(KeyModifiers::CONTROL) => {
                 if let Some(name) = self.selected_name() {
                     let currently_stream = self.active_panel == Panel::Stream;
                     self.collector.toggle_category(name, currently_stream);
