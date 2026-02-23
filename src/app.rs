@@ -340,18 +340,18 @@ impl App {
             Panel::Stream => {
                 let s = self.collector.stream();
                 s.get(self.stream_scroll.selected.min(s.len().saturating_sub(1)))
-                    .map(|e| (e.name, e.sys_id, e.comp_id, e.color, e.parsed_fields()))
+                    .map(|e| (e.name, e.sys_id, e.comp_id, e.sys_color, e.comp_color, e.parsed_fields()))
             }
             Panel::Messages => {
                 let m = self.collector.messages();
                 m.get(self.messages_scroll.selected.min(m.len().saturating_sub(1)))
-                    .map(|e| (e.name, e.sys_id, e.comp_id, e.color, e.parsed_fields()))
+                    .map(|e| (e.name, e.sys_id, e.comp_id, e.sys_color, e.comp_color, e.parsed_fields()))
             }
         };
 
         let lines: Vec<Line> = match selected {
-            Some((name, sys_id, comp_id, color, fields)) => {
-                message_lines(name, sys_id, comp_id, color, fields)
+            Some((name, sys_id, comp_id, sys_color, comp_color, fields)) => {
+                message_lines(name, sys_id, comp_id, sys_color, comp_color, fields)
             }
             None => vec![Line::from(Span::styled(
                 "No messages",
@@ -396,21 +396,21 @@ fn message_lines(
     name: &'static str,
     sys_id: u8,
     comp_id: u8,
-    color: Color,
+    sys_color: Color,
+    comp_color: Color,
     fields: Vec<(&str, &str)>,
 ) -> Vec<Line<'static>> {
-    let colored = Style::default().fg(color);
     let label = Style::default().fg(Color::Gray);
     let mut lines = vec![
         Line::from(Span::styled(name, Style::default().fg(Color::Cyan).bold())),
         Line::from(""),
         Line::from(vec![
             Span::styled("sys_id  ", label),
-            Span::styled(format!("{}", sys_id), colored),
+            Span::styled(format!("{}", sys_id), Style::default().fg(sys_color)),
         ]),
         Line::from(vec![
             Span::styled("comp_id ", label),
-            Span::styled(format!("{}", comp_id), colored),
+            Span::styled(format!("{}", comp_id), Style::default().fg(comp_color)),
         ]),
         Line::from(""),
     ];

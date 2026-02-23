@@ -49,7 +49,8 @@ impl Collector {
     }
 
     pub fn push(&mut self, msg: MavMsg) {
-        let color = msg.color();
+        let sys_color = msg.sys_color();
+        let comp_color = msg.comp_color();
         let msg_color = msg.msg_color();
         let sys_id = msg.header.system_id;
         let comp_id = msg.header.component_id;
@@ -59,7 +60,8 @@ impl Collector {
 
         if self.message_types.contains(name) {
             self.messages.push(MessageEntry {
-                color,
+                sys_color,
+                comp_color,
                 msg_color,
                 sys_id,
                 comp_id,
@@ -70,7 +72,8 @@ impl Collector {
             let key = (sys_id, comp_id, name);
             if let Some(&idx) = self.stream_index.get(&key) {
                 let entry = &mut self.stream[idx];
-                entry.color = color;
+                entry.sys_color = sys_color;
+                entry.comp_color = comp_color;
                 entry.msg_color = msg_color;
                 entry.fields = fields;
                 entry.timestamp = timestamp;
@@ -78,7 +81,8 @@ impl Collector {
                 let idx = self.stream.len();
                 self.stream_index.insert(key, idx);
                 self.stream.push(StreamEntry {
-                    color,
+                    sys_color,
+                    comp_color,
                     msg_color,
                     sys_id,
                     comp_id,

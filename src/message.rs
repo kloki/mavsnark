@@ -26,10 +26,12 @@ impl MavMsg {
         }
     }
 
-    pub fn color(&self) -> Color {
-        let idx = (self.header.system_id as usize * 31 + self.header.component_id as usize)
-            % COLORS.len();
-        COLORS[idx]
+    pub fn sys_color(&self) -> Color {
+        COLORS[self.header.system_id as usize % COLORS.len()]
+    }
+
+    pub fn comp_color(&self) -> Color {
+        COLORS[self.header.component_id as usize % COLORS.len()]
     }
 
     pub fn msg_color(&self) -> Option<Color> {
@@ -81,7 +83,8 @@ mod tests {
             1,
             1,
         );
-        assert_eq!(m1.color(), m2.color());
+        assert_eq!(m1.sys_color(), m2.sys_color());
+        assert_eq!(m1.comp_color(), m2.comp_color());
     }
 
     #[test]
@@ -96,9 +99,10 @@ mod tests {
             2,
             1,
         );
-        // Different sys_id should (likely) produce different colors
-        // With the hash formula: (1*31+1)%6=2, (2*31+1)%6=3
-        assert_ne!(m1.color(), m2.color());
+        // Different sys_id should produce different sys colors
+        assert_ne!(m1.sys_color(), m2.sys_color());
+        // Same comp_id should produce same comp color
+        assert_eq!(m1.comp_color(), m2.comp_color());
     }
 
     #[test]

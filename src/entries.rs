@@ -18,7 +18,8 @@ pub(crate) fn parse_fields(s: &str) -> Vec<(&str, &str)> {
 }
 
 pub struct StreamEntry {
-    pub color: Color,
+    pub sys_color: Color,
+    pub comp_color: Color,
     pub msg_color: Option<Color>,
     pub sys_id: u8,
     pub comp_id: u8,
@@ -33,7 +34,8 @@ impl StreamEntry {
     }
 
     pub fn to_line(&self) -> Line<'_> {
-        let colored = Style::default().fg(self.color);
+        let sys_style = Style::default().fg(self.sys_color);
+        let comp_style = Style::default().fg(self.comp_color);
         let ago = Utc::now()
             .signed_duration_since(self.timestamp)
             .num_milliseconds() as f64
@@ -45,9 +47,9 @@ impl StreamEntry {
         };
         Line::from(vec![
             Span::raw("["),
-            Span::styled(format!("{:>3}", self.sys_id), colored),
+            Span::styled(format!("{:>3}", self.sys_id), sys_style),
             Span::raw(":"),
-            Span::styled(format!("{:>3}", self.comp_id), colored),
+            Span::styled(format!("{:>3}", self.comp_id), comp_style),
             Span::raw("] "),
             Span::styled(format!("{ago:>6.1}s "), gray),
             Span::styled(format!("{}: {}", self.name, self.fields), msg_style),
@@ -56,7 +58,8 @@ impl StreamEntry {
 }
 
 pub struct MessageEntry {
-    pub color: Color,
+    pub sys_color: Color,
+    pub comp_color: Color,
     pub msg_color: Option<Color>,
     pub sys_id: u8,
     pub comp_id: u8,
@@ -70,16 +73,17 @@ impl MessageEntry {
     }
 
     pub fn to_line(&self) -> Line<'_> {
-        let colored = Style::default().fg(self.color);
+        let sys_style = Style::default().fg(self.sys_color);
+        let comp_style = Style::default().fg(self.comp_color);
         let msg_style = match self.msg_color {
             Some(c) => Style::default().fg(c),
             None => Style::default(),
         };
         Line::from(vec![
             Span::raw("["),
-            Span::styled(format!("{:>3}", self.sys_id), colored),
+            Span::styled(format!("{:>3}", self.sys_id), sys_style),
             Span::raw(":"),
-            Span::styled(format!("{:>3}", self.comp_id), colored),
+            Span::styled(format!("{:>3}", self.comp_id), comp_style),
             Span::raw("] "),
             Span::styled(format!("{}: {}", self.name, self.fields), msg_style),
         ])
@@ -117,7 +121,8 @@ mod tests {
     #[test]
     fn parsed_fields_on_stream_entry() {
         let entry = StreamEntry {
-            color: Color::Red,
+            sys_color: Color::Red,
+            comp_color: Color::Cyan,
             msg_color: None,
             sys_id: 1,
             comp_id: 1,
@@ -132,7 +137,8 @@ mod tests {
     #[test]
     fn parsed_fields_on_message_entry() {
         let entry = MessageEntry {
-            color: Color::Red,
+            sys_color: Color::Red,
+            comp_color: Color::Cyan,
             msg_color: None,
             sys_id: 1,
             comp_id: 1,
