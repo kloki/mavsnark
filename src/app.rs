@@ -53,6 +53,8 @@ static FOOTER: LazyLock<Paragraph<'static>> = LazyLock::new(|| {
         Span::raw(" Top/Bottom  "),
         Span::styled("Ctrl+o", key),
         Span::raw(" Docs  "),
+        Span::styled("Ctrl+s", key),
+        Span::raw(" Toggle  "),
         Span::styled("Ctrl+r", key),
         Span::raw(" Clear "),
     ]))
@@ -139,6 +141,16 @@ impl App {
                 self.stream_scroll = ScrollState::new();
                 self.messages_scroll = ScrollState::new();
             }
+            (KeyCode::Char('s'), m) if m.contains(KeyModifiers::CONTROL) => {
+                if let Some(name) = self.selected_name() {
+                    let currently_stream = self.active_panel == Panel::Stream;
+                    self.collector.toggle_category(name, currently_stream);
+                    self.stream_scroll
+                        .clamp(self.collector.stream().len(), self.stream_vh);
+                    self.messages_scroll
+                        .clamp(self.collector.messages().len(), self.messages_vh);
+                }
+            }
             (KeyCode::Tab, _)
             | (KeyCode::Left, _)
             | (KeyCode::Right, _)
@@ -218,7 +230,8 @@ impl App {
         let stream_total = self.collector.stream().len();
         self.stream_scroll.auto_follow(stream_total, self.stream_vh);
         let messages_total = self.collector.messages().len();
-        self.messages_scroll.auto_follow(messages_total, self.messages_vh);
+        self.messages_scroll
+            .auto_follow(messages_total, self.messages_vh);
 
         let (messages_widget, mut messages_sb) = self.build_messages();
         frame.render_widget(messages_widget, columns[0]);
@@ -302,7 +315,13 @@ impl App {
             })
             .collect();
 
-        let block = panel_block("Messages", total, "", self.messages_scroll.auto_scroll, active);
+        let block = panel_block(
+            "Messages",
+            total,
+            "",
+            self.messages_scroll.auto_scroll,
+            active,
+        );
 
         let paragraph = Paragraph::new(lines).block(block);
         let scrollbar_state =

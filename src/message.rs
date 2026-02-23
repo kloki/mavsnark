@@ -51,39 +51,6 @@ impl MavMsg {
         let end = debug.rfind('}').unwrap_or(debug.len());
         debug[start..end].trim().to_string()
     }
-
-    #[allow(deprecated)]
-    pub fn is_message(&self) -> bool {
-        matches!(
-            self.msg,
-            // Command protocol
-            MavMessage::COMMAND_INT(..)
-                | MavMessage::COMMAND_LONG(..)
-                | MavMessage::COMMAND_ACK(..)
-                | MavMessage::COMMAND_CANCEL(..)
-                // Mission protocol
-                | MavMessage::MISSION_ITEM(..)
-                | MavMessage::MISSION_ITEM_INT(..)
-                | MavMessage::MISSION_REQUEST(..)
-                | MavMessage::MISSION_REQUEST_INT(..)
-                | MavMessage::MISSION_REQUEST_LIST(..)
-                | MavMessage::MISSION_REQUEST_PARTIAL_LIST(..)
-                | MavMessage::MISSION_SET_CURRENT(..)
-                | MavMessage::MISSION_WRITE_PARTIAL_LIST(..)
-                | MavMessage::MISSION_COUNT(..)
-                | MavMessage::MISSION_CLEAR_ALL(..)
-                | MavMessage::MISSION_ACK(..)
-                // Discrete SET_* messages
-                | MavMessage::SET_MODE(..)
-                | MavMessage::SET_GPS_GLOBAL_ORIGIN(..)
-                | MavMessage::SET_HOME_POSITION(..)
-                // Param set
-                | MavMessage::PARAM_SET(..)
-                | MavMessage::PARAM_EXT_SET(..)
-                // Safety
-                | MavMessage::SAFETY_SET_ALLOWED_AREA(..)
-        )
-    }
 }
 
 #[cfg(test)]
@@ -100,36 +67,6 @@ mod tests {
             msg,
             timestamp: chrono::Utc::now(),
         }
-    }
-
-    #[test]
-    fn heartbeat_is_not_message() {
-        let m = make(
-            MavMessage::HEARTBEAT(mavlink::common::HEARTBEAT_DATA::default()),
-            1,
-            1,
-        );
-        assert!(!m.is_message());
-    }
-
-    #[test]
-    fn command_long_is_message() {
-        let m = make(
-            MavMessage::COMMAND_LONG(mavlink::common::COMMAND_LONG_DATA::default()),
-            1,
-            1,
-        );
-        assert!(m.is_message());
-    }
-
-    #[test]
-    fn mission_item_int_is_message() {
-        let m = make(
-            MavMessage::MISSION_ITEM_INT(mavlink::common::MISSION_ITEM_INT_DATA::default()),
-            1,
-            1,
-        );
-        assert!(m.is_message());
     }
 
     #[test]

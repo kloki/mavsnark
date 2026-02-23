@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::{
     entries::{MessageEntry, StreamEntry},
@@ -7,10 +7,35 @@ use crate::{
 
 type StreamKey = (u8, u8, &'static str);
 
+const DEFAULT_MESSAGE_TYPES: &[&str] = &[
+    "COMMAND_INT",
+    "COMMAND_LONG",
+    "COMMAND_ACK",
+    "COMMAND_CANCEL",
+    "MISSION_ITEM",
+    "MISSION_ITEM_INT",
+    "MISSION_REQUEST",
+    "MISSION_REQUEST_INT",
+    "MISSION_REQUEST_LIST",
+    "MISSION_REQUEST_PARTIAL_LIST",
+    "MISSION_SET_CURRENT",
+    "MISSION_WRITE_PARTIAL_LIST",
+    "MISSION_COUNT",
+    "MISSION_CLEAR_ALL",
+    "MISSION_ACK",
+    "SET_MODE",
+    "SET_GPS_GLOBAL_ORIGIN",
+    "SET_HOME_POSITION",
+    "PARAM_SET",
+    "PARAM_EXT_SET",
+    "SAFETY_SET_ALLOWED_AREA",
+];
+
 pub struct Collector {
     stream: Vec<StreamEntry>,
     stream_index: HashMap<StreamKey, usize>,
     messages: Vec<MessageEntry>,
+    message_types: HashSet<&'static str>,
 }
 
 impl Collector {
@@ -19,6 +44,7 @@ impl Collector {
             stream: Vec::new(),
             stream_index: HashMap::new(),
             messages: Vec::new(),
+            message_types: DEFAULT_MESSAGE_TYPES.iter().copied().collect(),
         }
     }
 
@@ -31,7 +57,7 @@ impl Collector {
         let fields = msg.fields();
         let timestamp = msg.timestamp;
 
-        if msg.is_message() {
+        if self.message_types.contains(name) {
             self.messages.push(MessageEntry {
                 color,
                 msg_color,
@@ -70,6 +96,25 @@ impl Collector {
 
     pub fn messages(&self) -> &[MessageEntry] {
         &self.messages
+    }
+
+    pub fn toggle_category(&mut self, name: &'static str, currently_stream: bool) {
+        if currently_stream {
+            self.message_types.insert(name);
+            self.stream.retain(|e| e.name != name);
+            self.rebuild_stream_index();
+        } else {
+            self.message_types.remove(name);
+            self.messages.retain(|e| e.name != name);
+        }
+    }
+
+    fn rebuild_stream_index(&mut self) {
+        self.stream_index.clear();
+        for (i, entry) in self.stream.iter().enumerate() {
+            self.stream_index
+                .insert((entry.sys_id, entry.comp_id, entry.name), i);
+        }
     }
 
     pub fn clear(&mut self) {
@@ -192,5 +237,119 @@ mod tests {
         ));
         assert_eq!(c.stream().len(), 2);
         assert_eq!(c.messages().len(), 2);
+    }
+
+    #[test]
+    fn toggle_stream_to_message() {
+        let mut c = Collector::new();
+        c.push(make_msg(
+            MavMessage::HEARTBEAT(mavlink::common::HEARTBEAT_DATA::default()),
+            1,
+            1,
+        ));
+        c.push(make_msg(
+            MavMessage::ATTITUDE(mavlink::common::ATTITUDE_DATA::default()),
+            1,
+            1,
+        ));
+        assert_eq!(c.stream().len(), 2);
+
+        c.toggle_category("HEARTBEAT", true);
+        assert_eq!(c.stream().len(), 1);
+        assert_eq!(c.stream()[0].name, "ATTITUDE");
+
+        // New HEARTBEAT pushes now go to messages
+        c.push(make_msg(
+            MavMessage::HEARTBEAT(mavlink::common::HEARTBEAT_DATA::default()),
+            1,
+            1,
+        ));
+        assert_eq!(c.stream().len(), 1);
+        assert_eq!(c.messages().len(), 1);
+        assert_eq!(c.messages()[0].name, "HEARTBEAT");
+    }
+
+    #[test]
+    fn toggle_message_to_stream() {
+        let mut c = Collector::new();
+        c.push(make_msg(
+            MavMessage::COMMAND_LONG(mavlink::common::COMMAND_LONG_DATA::default()),
+            1,
+            1,
+        ));
+        c.push(make_msg(
+            MavMessage::COMMAND_ACK(mavlink::common::COMMAND_ACK_DATA::default()),
+            1,
+            1,
+        ));
+        assert_eq!(c.messages().len(), 2);
+
+        c.toggle_category("COMMAND_LONG", false);
+        assert_eq!(c.messages().len(), 1);
+        assert_eq!(c.messages()[0].name, "COMMAND_ACK");
+
+        // New COMMAND_LONG pushes now go to stream
+        c.push(make_msg(
+            MavMessage::COMMAND_LONG(mavlink::common::COMMAND_LONG_DATA::default()),
+            1,
+            1,
+        ));
+        assert_eq!(c.stream().len(), 1);
+        assert_eq!(c.stream()[0].name, "COMMAND_LONG");
+    }
+
+    #[test]
+    fn double_toggle_restores_default() {
+        let mut c = Collector::new();
+        // HEARTBEAT starts as stream
+        c.push(make_msg(
+            MavMessage::HEARTBEAT(mavlink::common::HEARTBEAT_DATA::default()),
+            1,
+            1,
+        ));
+        assert_eq!(c.stream().len(), 1);
+
+        // Toggle to message
+        c.toggle_category("HEARTBEAT", true);
+        assert_eq!(c.stream().len(), 0);
+
+        // Toggle back to stream
+        c.toggle_category("HEARTBEAT", false);
+
+        // New push goes to stream again
+        c.push(make_msg(
+            MavMessage::HEARTBEAT(mavlink::common::HEARTBEAT_DATA::default()),
+            1,
+            1,
+        ));
+        assert_eq!(c.stream().len(), 1);
+        assert!(c.messages().is_empty());
+    }
+
+    #[test]
+    fn toggle_does_not_affect_other_types() {
+        let mut c = Collector::new();
+        c.push(make_msg(
+            MavMessage::HEARTBEAT(mavlink::common::HEARTBEAT_DATA::default()),
+            1,
+            1,
+        ));
+        c.push(make_msg(
+            MavMessage::ATTITUDE(mavlink::common::ATTITUDE_DATA::default()),
+            1,
+            1,
+        ));
+        c.push(make_msg(
+            MavMessage::COMMAND_LONG(mavlink::common::COMMAND_LONG_DATA::default()),
+            1,
+            1,
+        ));
+
+        c.toggle_category("HEARTBEAT", true);
+        // ATTITUDE still in stream, COMMAND_LONG still in messages
+        assert_eq!(c.stream().len(), 1);
+        assert_eq!(c.stream()[0].name, "ATTITUDE");
+        assert_eq!(c.messages().len(), 1);
+        assert_eq!(c.messages()[0].name, "COMMAND_LONG");
     }
 }

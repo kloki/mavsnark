@@ -47,6 +47,16 @@ impl ScrollState {
         self.offset = total.saturating_sub(visible);
     }
 
+    pub(crate) fn clamp(&mut self, total: usize, visible: usize) {
+        if total == 0 {
+            self.selected = 0;
+            self.offset = 0;
+        } else {
+            self.selected = self.selected.min(total - 1);
+            self.offset = self.offset.min(total.saturating_sub(visible));
+        }
+    }
+
     pub(crate) fn auto_follow(&mut self, total: usize, visible: usize) {
         if self.auto_scroll && total > 0 {
             self.selected = total - 1;
