@@ -1,9 +1,7 @@
-use std::{
-    io,
-    sync::{LazyLock, mpsc},
-};
+use std::{io, sync::LazyLock};
 
-use crossterm::event::{KeyCode, KeyEventKind, KeyModifiers};
+use crossterm::event::{Event, EventStream, KeyCode, KeyEventKind, KeyModifiers};
+use futures::StreamExt;
 use ratatui::{
     DefaultTerminal, Frame,
     layout::{Constraint, Layout},
@@ -11,8 +9,9 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
 };
+use tokio::time::MissedTickBehavior;
 
-use crate::{AppEvent, collector::Collector, scroll::ScrollState};
+use crate::{collector::Collector, message::MavMsg, scroll::ScrollState};
 
 #[derive(Debug, PartialEq)]
 enum Panel {
@@ -169,41 +168,32 @@ impl App {
         false
     }
 
-    pub fn run(
+    pub async fn run(
         &mut self,
         terminal: &mut DefaultTerminal,
-        rx: mpsc::Receiver<AppEvent>,
+        mut mav_rx: tokio::sync::mpsc::Receiver<MavMsg>,
     ) -> io::Result<()> {
-        let timeout = std::time::Duration::from_millis(200);
+        let mut event_stream = EventStream::new();
+        let mut tick = tokio::time::interval(std::time::Duration::from_millis(50));
+        tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
         loop {
-            let first = rx.recv_timeout(timeout);
-            match first {
-                Ok(AppEvent::Mav(msg)) => self.collector.push(*msg),
-                Ok(AppEvent::Terminal(crossterm::event::Event::Key(key))) => {
-                    if key.kind == KeyEventKind::Press && self.handle_key(key.code, key.modifiers) {
+            tokio::select! {
+                Some(msg) = mav_rx.recv() => {
+                    self.collector.push(msg);
+                }
+                Some(Ok(event)) = event_stream.next() => {
+                    if let Event::Key(key) = event
+                        && key.kind == KeyEventKind::Press
+                        && self.handle_key(key.code, key.modifiers)
+                    {
                         return Ok(());
                     }
                 }
-                Ok(_) | Err(mpsc::RecvTimeoutError::Timeout) => {}
-                Err(mpsc::RecvTimeoutError::Disconnected) => return Ok(()),
-            }
-
-            // Drain remaining queued events
-            while let Ok(event) = rx.try_recv() {
-                match event {
-                    AppEvent::Mav(msg) => self.collector.push(*msg),
-                    AppEvent::Terminal(crossterm::event::Event::Key(key)) => {
-                        if key.kind == KeyEventKind::Press
-                            && self.handle_key(key.code, key.modifiers)
-                        {
-                            return Ok(());
-                        }
-                    }
-                    _ => {}
+                _ = tick.tick() => {
+                    terminal.draw(|frame| self.draw(frame))?;
                 }
             }
-
-            terminal.draw(|frame| self.draw(frame))?;
         }
     }
 
@@ -340,12 +330,30 @@ impl App {
             Panel::Stream => {
                 let s = self.collector.stream();
                 s.get(self.stream_scroll.selected.min(s.len().saturating_sub(1)))
-                    .map(|e| (e.name, e.sys_id, e.comp_id, e.sys_color, e.comp_color, e.parsed_fields()))
+                    .map(|e| {
+                        (
+                            e.name,
+                            e.sys_id,
+                            e.comp_id,
+                            e.sys_color,
+                            e.comp_color,
+                            e.parsed_fields(),
+                        )
+                    })
             }
             Panel::Messages => {
                 let m = self.collector.messages();
                 m.get(self.messages_scroll.selected.min(m.len().saturating_sub(1)))
-                    .map(|e| (e.name, e.sys_id, e.comp_id, e.sys_color, e.comp_color, e.parsed_fields()))
+                    .map(|e| {
+                        (
+                            e.name,
+                            e.sys_id,
+                            e.comp_id,
+                            e.sys_color,
+                            e.comp_color,
+                            e.parsed_fields(),
+                        )
+                    })
             }
         };
 
