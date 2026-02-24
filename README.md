@@ -1,8 +1,6 @@
-```
- _____ _____ _ _ ___ ___ ___ ___ ___
-|     |  _  | | |_ -|   | .'|  _| '_|
-|_|_|_|__|__|\_/|___|_|_|__,|_| |_,_|
-```
+# MAVSNARK
+
+![Example](./example.png)
 
 A terminal UI for inspecting [MAVLink](https://mavlink.io/en/) traffic in real time.
 
