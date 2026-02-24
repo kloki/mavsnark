@@ -1,4 +1,4 @@
-use std::{io, sync::Arc, thread, time::Duration};
+use std::{io, sync::Arc};
 
 use mavlink::common::{
     HEARTBEAT_DATA, MavAutopilot, MavMessage, MavModeFlag, MavState, MavType,
@@ -19,7 +19,7 @@ pub fn spawn_heartbeat(
     system_id: u8,
 ) {
     let conn = Arc::clone(connection);
-    thread::spawn(move || {
+    tokio::spawn(async move {
         let header = MavHeader {
             system_id,
             component_id: 0,
@@ -33,11 +33,12 @@ pub fn spawn_heartbeat(
             system_status: MavState::MAV_STATE_ACTIVE,
             mavlink_version: 3,
         });
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
         loop {
+            interval.tick().await;
             if conn.send(&header, &heartbeat).is_err() {
                 break;
             }
-            thread::sleep(Duration::from_secs(1));
         }
     });
 }
