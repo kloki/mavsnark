@@ -7,35 +7,61 @@ use crate::{
 
 type StreamKey = (u8, u8, &'static str);
 
-const DEFAULT_MESSAGE_TYPES: &[&str] = &[
-    "COMMAND_INT",
-    "COMMAND_LONG",
-    "COMMAND_ACK",
-    "COMMAND_CANCEL",
-    "MISSION_ITEM",
-    "MISSION_ITEM_INT",
-    "MISSION_REQUEST",
-    "MISSION_REQUEST_INT",
-    "MISSION_REQUEST_LIST",
-    "MISSION_REQUEST_PARTIAL_LIST",
-    "MISSION_SET_CURRENT",
-    "MISSION_WRITE_PARTIAL_LIST",
-    "MISSION_COUNT",
-    "MISSION_CLEAR_ALL",
-    "MISSION_ACK",
-    "SET_MODE",
-    "SET_GPS_GLOBAL_ORIGIN",
-    "SET_HOME_POSITION",
-    "PARAM_SET",
-    "PARAM_EXT_SET",
-    "SAFETY_SET_ALLOWED_AREA",
+const DEFAULT_STREAM_TYPES: &[&str] = &[
+    "HEARTBEAT",
+    "SYS_STATUS",
+    "SYSTEM_TIME",
+    "GPS_RAW_INT",
+    "GPS_STATUS",
+    "GPS2_RAW",
+    "RAW_IMU",
+    "SCALED_IMU",
+    "SCALED_IMU2",
+    "SCALED_IMU3",
+    "HIGHRES_IMU",
+    "RAW_PRESSURE",
+    "SCALED_PRESSURE",
+    "SCALED_PRESSURE2",
+    "SCALED_PRESSURE3",
+    "ATTITUDE",
+    "ATTITUDE_QUATERNION",
+    "LOCAL_POSITION_NED",
+    "GLOBAL_POSITION_INT",
+    "POSITION_TARGET_LOCAL_NED",
+    "POSITION_TARGET_GLOBAL_INT",
+    "RC_CHANNELS",
+    "RC_CHANNELS_RAW",
+    "SERVO_OUTPUT_RAW",
+    "MANUAL_CONTROL",
+    "VFR_HUD",
+    "NAV_CONTROLLER_OUTPUT",
+    "BATTERY_STATUS",
+    "POWER_STATUS",
+    "ALTITUDE",
+    "ESTIMATOR_STATUS",
+    "VIBRATION",
+    "HOME_POSITION",
+    "EXTENDED_SYS_STATE",
+    "WIND_COV",
+    "TERRAIN_REPORT",
+    "DISTANCE_SENSOR",
+    "OPTICAL_FLOW",
+    "ODOMETRY",
+    "UTM_GLOBAL_POSITION",
+    "MISSION_CURRENT",
+    "AUTOPILOT_VERSION",
+    "TIMESYNC",
+    "PING",
+    "LINK_NODE_STATUS",
+    "ACTUATOR_OUTPUT_STATUS",
+    "FLIGHT_INFORMATION",
 ];
 
 pub struct Collector {
     stream: Vec<StreamEntry>,
     stream_index: HashMap<StreamKey, usize>,
     messages: Vec<MessageEntry>,
-    message_types: HashSet<&'static str>,
+    stream_types: HashSet<&'static str>,
 }
 
 impl Collector {
@@ -44,7 +70,7 @@ impl Collector {
             stream: Vec::new(),
             stream_index: HashMap::new(),
             messages: Vec::new(),
-            message_types: DEFAULT_MESSAGE_TYPES.iter().copied().collect(),
+            stream_types: DEFAULT_STREAM_TYPES.iter().copied().collect(),
         }
     }
 
@@ -58,17 +84,7 @@ impl Collector {
         let fields = msg.fields();
         let timestamp = msg.timestamp;
 
-        if self.message_types.contains(name) {
-            self.messages.push(MessageEntry {
-                sys_color,
-                comp_color,
-                msg_color,
-                sys_id,
-                comp_id,
-                name,
-                fields,
-            });
-        } else {
+        if self.stream_types.contains(name) {
             let key = (sys_id, comp_id, name);
             if let Some(&idx) = self.stream_index.get(&key) {
                 let entry = &mut self.stream[idx];
@@ -91,6 +107,16 @@ impl Collector {
                     timestamp,
                 });
             }
+        } else {
+            self.messages.push(MessageEntry {
+                sys_color,
+                comp_color,
+                msg_color,
+                sys_id,
+                comp_id,
+                name,
+                fields,
+            });
         }
     }
 
@@ -104,11 +130,11 @@ impl Collector {
 
     pub fn toggle_category(&mut self, name: &'static str, currently_stream: bool) {
         if currently_stream {
-            self.message_types.insert(name);
+            self.stream_types.remove(name);
             self.stream.retain(|e| e.name != name);
             self.rebuild_stream_index();
         } else {
-            self.message_types.remove(name);
+            self.stream_types.insert(name);
             self.messages.retain(|e| e.name != name);
         }
     }
