@@ -26,9 +26,9 @@ mavsnark --uri udpin:0.0.0.0:14445
 
 The default URI is `udpin:0.0.0.0:14445`.
 
-## Test setup with mavlink-routerd
+## Setup with mavlink-routerd
 
-This setup uses [mavlink-routerd](https://github.com/mavlink-router/mavlink-router) to route MAVLink traffic between PX4 SITL, QGroundControl, and mavsnark.
+This setup uses [mavlink-routerd](https://github.com/mavlink-router/mavlink-router) to route MAVLink traffic between PX4 SITL, QGroundControl, and mavsnark. It leverages the Sniffer functionality mof malivnk routerd
 
 ### 1. Start PX4 SITL
 
