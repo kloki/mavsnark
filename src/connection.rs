@@ -1,9 +1,9 @@
 use std::{io, sync::Arc};
 
-use mavlink::common::{
-    HEARTBEAT_DATA, MavAutopilot, MavMessage, MavModeFlag, MavState, MavType,
+use mavlink::{
+    MavConnection, MavHeader,
+    common::{HEARTBEAT_DATA, MavAutopilot, MavMessage, MavModeFlag, MavState, MavType},
 };
-use mavlink::{MavConnection, MavHeader};
 
 pub fn connect(uri: &str) -> io::Result<Arc<dyn MavConnection<MavMessage> + Send + Sync>> {
     let mut connection =
