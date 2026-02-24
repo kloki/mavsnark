@@ -5,7 +5,7 @@ mod entries;
 mod message;
 mod scroll;
 
-use std::{io, thread, time::Duration};
+use std::{io, thread};
 
 use clap::Parser;
 use message::MavMsg;
@@ -17,9 +17,9 @@ struct Args {
     #[arg(short, long, default_value = "udpin:0.0.0.0:14445")]
     uri: String,
 
-    /// Send heartbeat at this interval (seconds) to keep mavlink-routerd forwarding traffic
+    /// Send heartbeat with this system ID to enable mavlink-routerd sniffer mode
     #[arg(long)]
-    heartbeat: Option<f64>,
+    heartbeat: Option<u8>,
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -33,8 +33,8 @@ async fn main() -> io::Result<()> {
         e
     })?;
 
-    if let Some(interval) = args.heartbeat {
-        connection::spawn_heartbeat(&connection, Duration::from_secs_f64(interval));
+    if let Some(system_id) = args.heartbeat {
+        connection::spawn_heartbeat(&connection, system_id);
     }
 
     let conn = connection.clone();

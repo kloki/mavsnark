@@ -16,12 +16,12 @@ pub fn connect(uri: &str) -> io::Result<Arc<dyn MavConnection<MavMessage> + Send
 
 pub fn spawn_heartbeat(
     connection: &Arc<dyn MavConnection<MavMessage> + Send + Sync>,
-    interval: Duration,
+    system_id: u8,
 ) {
     let conn = Arc::clone(connection);
     thread::spawn(move || {
         let header = MavHeader {
-            system_id: 255,
+            system_id,
             component_id: 0,
             sequence: 0,
         };
@@ -37,7 +37,7 @@ pub fn spawn_heartbeat(
             if conn.send(&header, &heartbeat).is_err() {
                 break;
             }
-            thread::sleep(interval);
+            thread::sleep(Duration::from_secs(1));
         }
     });
 }
